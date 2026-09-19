@@ -1,0 +1,61 @@
+name: Build and deploy to Pages
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The acceptance fixture is generated, so regenerate it and fail if the
+      # committed STEP files have drifted from the generator.
+      - name: Check fixtures are up to date
+        run: |
+          npm run fixtures
+          git diff --exit-code -- fixtures
+
+      - run: npm test
+
+      - name: Build
+        # Pages serves the site from /<repo>/, so the base path has to match the
+        # repository name rather than being hardcoded.
+        run: npm run build
+        env:
+          VITE_BASE: /${{ github.event.repository.name }}/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

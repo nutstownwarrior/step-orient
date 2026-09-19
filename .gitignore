@@ -1,0 +1,4 @@
+node_modules
+dist
+.scratch
+public/occt-import-js.wasm

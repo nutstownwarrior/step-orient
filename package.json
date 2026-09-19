@@ -1,0 +1,24 @@
+{
+  "name": "step-orient",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm run assets && vite",
+    "build": "npm run assets && tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "npm run assets && vitest run",
+    "assets": "node scripts/copy-wasm.mjs",
+    "fixtures": "node scripts/make-fixtures.mjs"
+  },
+  "dependencies": {
+    "clipper2-ts": "^2.0.1-18",
+    "occt-import-js": "^0.0.23"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  }
+}
