@@ -71,6 +71,10 @@
               <option value="free">Free rotation (not implemented)</option>
             </select>
           </label>
+          <label class="check">
+            <input id="nest-in-holes" type="checkbox" checked />
+            <span>Nest parts inside cutouts</span>
+          </label>
           <label>Sheet mode
             <select id="mode">
               <option value="fixed">Fixed sheet size</option>
@@ -115,8 +119,10 @@
 
       <footer>
         <p class="note">
-          Bounding-box nesting: parts are packed by their rectangles, so a small part is never
-          placed inside a larger part's hole. See the README for when that matters.
+          Parts are packed by their bounding rectangles, so interlocking profiles are not
+          nested into each other — but a part that fits inside another part's cutout is
+          placed there, held to the same gap. Anything cut from inside a cutout has to be
+          cut before its host's cutout is released. See the README.
         </p>
       </footer>
     </main>

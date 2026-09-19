@@ -30,7 +30,7 @@ export interface Placed {
   rotation: number;
 }
 
-interface Rect {
+export interface Rect {
   x: number;
   y: number;
   w: number;
@@ -47,6 +47,19 @@ export class MaxRects {
 
   constructor(width: number, height: number) {
     this.free = width > 0 && height > 0 ? [{ x: 0, y: 0, w: width, h: height }] : [];
+  }
+
+  /**
+   * Start from an arbitrary set of free rectangles rather than one whole bin.
+   *
+   * This is how parts get packed into the cutouts of other parts: each cutout
+   * contributes the maximal rectangles that fit inside it, and the packer then
+   * treats them exactly like any other free area.
+   */
+  static fromFree(rects: Rect[]): MaxRects {
+    const bin = new MaxRects(0, 0);
+    bin.free = pruneContained(rects.filter((r) => r.w > EPS && r.h > EPS));
+    return bin;
   }
 
   /** Place one item, or return null if nothing fits. */
@@ -78,7 +91,7 @@ export class MaxRects {
     for (const f of this.free) {
       if (!this.split(f, node, next)) next.push(f);
     }
-    this.free = prune(next);
+    this.free = pruneContained(next);
   }
 
   /** Returns true if `f` intersected `node` and was replaced by its remnants. */
@@ -107,7 +120,7 @@ export class MaxRects {
 }
 
 /** Drop free rectangles wholly contained in another. */
-function prune(rects: Rect[]): Rect[] {
+export function pruneContained(rects: Rect[]): Rect[] {
   const keep: Rect[] = [];
   for (let i = 0; i < rects.length; i++) {
     let contained = false;
@@ -129,9 +142,7 @@ const contains = (outer: Rect, inner: Rect) =>
   inner.x + inner.w <= outer.x + outer.w + EPS &&
   inner.y + inner.h <= outer.y + outer.h + EPS;
 
-/** Pack as many items as fit into one region, in the order given. */
-export function packOne(width: number, height: number, items: PackItem[]): PackResult {
-  const bin = new MaxRects(width, height);
+function drain(bin: MaxRects, items: PackItem[]): PackResult {
   const placed: Placed[] = [];
   const rejected: PackItem[] = [];
   for (const item of items) {
@@ -140,6 +151,16 @@ export function packOne(width: number, height: number, items: PackItem[]): PackR
     else rejected.push(item);
   }
   return { placed, rejected };
+}
+
+/** Pack as many items as fit into one region, in the order given. */
+export function packOne(width: number, height: number, items: PackItem[]): PackResult {
+  return drain(new MaxRects(width, height), items);
+}
+
+/** Pack as many items as fit into a given set of free rectangles. */
+export function packInto(rects: Rect[], items: PackItem[]): PackResult {
+  return drain(MaxRects.fromFree(rects), items);
 }
 
 /** The sort orders SPEC 5 asks to be tried. */
