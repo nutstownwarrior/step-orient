@@ -59,6 +59,7 @@ interface StoredSettings {
   boardW: number;
   boardLengths: string;
   unit: string;
+  nestInHoles: boolean;
 }
 
 const defaults: StoredSettings = {
@@ -73,6 +74,7 @@ const defaults: StoredSettings = {
   boardW: 250,
   boardLengths: '2000, 1200, 800',
   unit: '',
+  nestInHoles: true,
 };
 
 /** SPEC 9 — persist settings, never the uploaded geometry. */
@@ -106,6 +108,7 @@ function readSettings(): StoredSettings {
     boardW: numberOf('board-w', 1),
     boardLengths: ($('board-lengths') as HTMLInputElement).value,
     unit: ($('unit') as HTMLSelectElement).value,
+    nestInHoles: ($('nest-in-holes') as HTMLInputElement).checked,
   };
 }
 
@@ -126,6 +129,7 @@ function applySettings(s: StoredSettings): void {
   ($('board-w') as HTMLInputElement).value = String(s.boardW);
   ($('board-lengths') as HTMLInputElement).value = s.boardLengths;
   ($('unit') as HTMLSelectElement).value = s.unit;
+  ($('nest-in-holes') as HTMLInputElement).checked = s.nestInHoles;
   syncMode();
 }
 
@@ -315,7 +319,7 @@ $('mode').addEventListener('change', () => {
   syncMode();
   saveSettings();
 });
-for (const id of ['gap', 'margin', 'kerf', 'orientation', 'sheet-w', 'sheet-h', 'candidates', 'board-w', 'board-lengths', 'unit']) {
+for (const id of ['gap', 'margin', 'kerf', 'orientation', 'sheet-w', 'sheet-h', 'candidates', 'board-w', 'board-lengths', 'unit', 'nest-in-holes']) {
   $(id).addEventListener('change', saveSettings);
 }
 
@@ -341,6 +345,7 @@ async function runNest(): Promise<void> {
     orientation: s.orientation,
     sheetWidth: s.sheetW,
     sheetHeight: s.sheetH,
+    nestInHoles: s.nestInHoles,
   };
 
   let mode: SheetMode;
@@ -426,6 +431,19 @@ function renderResults(
       list.append(li);
     }
     box.append(list);
+  }
+
+  // A part cut from inside another part changes the cutting order, so say so
+  // rather than leaving it to be noticed on the preview.
+  const inCutouts = nested.sheets.flatMap((s) => s.placements).filter((p) => p.nestedIn);
+  if (inCutouts.length > 0) {
+    const note = document.createElement('span');
+    note.className = 'nested';
+    const names = [...new Set(inCutouts.map((p) => `${p.name} in ${p.nestedIn}`))];
+    note.textContent =
+      `${inCutouts.length} part${inCutouts.length === 1 ? ' is' : 's are'} cut from inside another ` +
+      `part's cutout (${names.join('; ')}). Cut those profiles before releasing the host's cutout.`;
+    box.append(note);
   }
 
   const sheetArea = nested.sheets.reduce((s, sh) => s + sh.width * sh.height, 0);

@@ -1,4 +1,5 @@
-import { packOne, SORT_ORDERS, sortItems, type Box, type PackItem, type Placed } from './maxrects';
+import { packInto, packOne, SORT_ORDERS, sortItems, type Box, type PackItem, type Placed } from './maxrects';
+import { holeBins, pointInRing } from './holes';
 import { bounds, mapOutline, rotateOutline, translateRing } from './orient';
 import { outlineArea } from './outline';
 import { validate } from './validate';
@@ -63,9 +64,12 @@ function boxesFor(part: Part, settings: NestSettings, gap: number): Box[] {
 }
 
 interface GroupLayout {
-  bins: Placed[][];
+  bins: Placement[][];
   utilisation: number;
 }
+
+/** How many rounds of "fill the cutouts of what was just placed" to run. */
+const HOLE_ROUNDS = 4;
 
 /**
  * SPEC 5 — the spacing trick.
@@ -83,6 +87,7 @@ function packGroup(
   sheetW: number,
   sheetH: number
 ): GroupLayout {
+  const partOf = new Map(instances.map((i) => [i.id, i.part]));
   const regionW = sheetW - 2 * settings.margin + gap;
   const regionH = sheetH - 2 * settings.margin + gap;
 
@@ -103,7 +108,7 @@ function packGroup(
 
   let best: GroupLayout | null = null;
   for (const order of SORT_ORDERS) {
-    const bins: Placed[][] = [];
+    const bins: Placement[][] = [];
     let remaining = sortItems(items, order.key);
     // One iteration per part is the most that can ever be needed; the guard
     // above already rules out a part that cannot fit at all, so this only
@@ -113,8 +118,12 @@ function packGroup(
       if (placed.length === 0) {
         throw new Error(`nesting made no progress with ${remaining.length} parts left to place`);
       }
-      bins.push(placed);
-      remaining = rejected;
+      const sheet = placed.map((p) => toPlacement(p, partOf.get(p.id)!, gap, settings.margin));
+      const filled = settings.nestInHoles
+        ? fillCutouts(sheet, rejected, partOf, gap, settings.margin)
+        : { placements: sheet, leftover: rejected };
+      bins.push(filled.placements);
+      remaining = filled.leftover;
     }
     if (remaining.length > 0) throw new Error('nesting did not place every part');
 
@@ -126,6 +135,58 @@ function packGroup(
     }
   }
   return best!;
+}
+
+/**
+ * Drop the parts the sheet had no room for into the cutouts of the parts that
+ * did fit.
+ *
+ * Only ever run on parts the sheet itself rejected, so it can reduce the sheet
+ * count but never make a layout worse. Newly placed parts may have cutouts of
+ * their own, so it repeats until nothing more lands.
+ */
+function fillCutouts(
+  placements: Placement[],
+  rejected: PackItem[],
+  partOf: Map<string, Part>,
+  gap: number,
+  margin: number
+): { placements: Placement[]; leftover: PackItem[] } {
+  const all = [...placements];
+  let hosts = placements;
+  let pending = rejected;
+
+  for (let round = 0; round < HOLE_ROUNDS && pending.length > 0; round++) {
+    const rects = holeBins(hosts, gap, margin);
+    if (rects.length === 0) break;
+    const { placed, rejected: stillOut } = packInto(rects, pending);
+    if (placed.length === 0) break;
+    hosts = placed.map((p) => ({
+      ...toPlacement(p, partOf.get(p.id)!, gap, margin),
+      nestedIn: hostNameAt(all, p, gap, margin),
+    }));
+    all.push(...hosts);
+    pending = stillOut;
+  }
+  return { placements: all, leftover: pending };
+}
+
+/**
+ * Which already-placed part's cutout a nested placement landed in.
+ *
+ * The placement's own centre is tested against the cutout ring itself rather
+ * than its bounding box, so an L-shaped or slotted cutout does not claim a
+ * part that actually sits in the cutout next to it.
+ */
+function hostNameAt(placements: Placement[], placed: Placed, gap: number, margin: number): string | undefined {
+  const x = placed.x + margin + (placed.w - gap) / 2;
+  const y = placed.y + margin + (placed.h - gap) / 2;
+  for (const host of placements) {
+    for (const hole of host.outline.interiors) {
+      if (pointInRing(x, y, hole)) return host.name;
+    }
+  }
+  return undefined;
 }
 
 function toPlacement(placed: Placed, part: Part, gap: number, margin: number): Placement {
@@ -162,16 +223,11 @@ export function nest(parts: Part[], settings: NestSettings): NestResult {
 
   const thicknesses = [...groups.keys()].sort((a, b) => a - b);
   const sheets: Sheet[] = [];
-  const byId = new Map(parts.map((p) => [p.id, p]));
 
   for (const thickness of thicknesses) {
     const instances = expand(groups.get(thickness)!);
     const layout = packGroup(instances, settings, gap, settings.sheetWidth, settings.sheetHeight);
-    for (const bin of layout.bins) {
-      const placements = bin.map((p) => {
-        const part = byId.get(p.id.slice(0, p.id.lastIndexOf('#')))!;
-        return toPlacement(p, part, gap, settings.margin);
-      });
+    for (const placements of layout.bins) {
       sheets.push({
         index: sheets.length,
         width: settings.sheetWidth,

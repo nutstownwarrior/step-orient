@@ -38,6 +38,9 @@ const settings: NestSettings = {
   orientation: 'grain-locked',
   sheetWidth: 1000,
   sheetHeight: 600,
+  // SPEC 10's numbers are the plain bounding-box baseline. Nesting into
+  // cutouts is asserted separately, in test/cutouts.test.ts.
+  nestInHoles: false,
 };
 
 let parts: Part[];

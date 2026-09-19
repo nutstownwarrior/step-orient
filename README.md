@@ -25,6 +25,8 @@ your geometry never leaves the machine.
 4. **Nests.** MaxRects best-short-side-fit, run under five sort orders, keeping
    whichever needs the fewest sheets. Parts are grouped by thickness and nested
    separately, because parts of different thickness cannot share a board.
+   Parts a sheet has no room for are then tried in the cutouts of the parts
+   that did fit.
 5. **Checks the result.** An independent pass re-measures the actual placed
    polygons: every part inside the sheet, every edge margin respected, every
    part-to-part distance at least the requested gap, no overlaps. The measured
@@ -49,20 +51,37 @@ not the tool.
 Straight edges are exact. A rectangular part comes out with exactly four
 vertices, which the test suite asserts.
 
-### Bounding-box nesting: small parts never go inside big parts' holes
+### Bounding-box nesting, with one exception
 
 Packing is done on each part's bounding rectangle, not its true shape. The
 consequences:
 
-- A part with a large interior cutout wastes that area. Nothing will be placed
-  inside the hole, even if it would fit easily.
 - Two L-shaped parts will not be interlocked.
+- A part's bounding box reserves its corners even when they are empty.
 - The measured gap is between the real outlines, so the layout is always safe —
   just not always as tight as a true-shape nester would manage.
 
-For jobs where that difference is worth the extra effort — lots of irregular
-parts, expensive material — use [Deepnest](https://deepnest.io/), which does
-true-shape nesting with part-in-hole placement.
+The exception is cutouts. **Parts are placed inside the cutouts of other
+parts** when they fit, which is the one case where the waste is large and
+obvious. Each cutout is shrunk by the gap and reduced to the maximal
+rectangles that fit inside it, and those rectangles are handed to the packer
+like any other free area — so a part in a cutout is held to exactly the same
+gap and validated by exactly the same checks as a part anywhere else.
+
+This only ever runs on parts the sheet itself had no room for, so it can
+save a sheet but never make a layout worse. Turn it off with **Nest parts
+inside cutouts** for plain bounding-box packing.
+
+**It changes the cutting order.** A part nested in a cutout has to be cut
+before the host's cutout is released, or the waste it sits in drops out with
+the part still in it. The app flags this everywhere it can: the validation
+banner names each nested part and its host, those parts are drawn in a
+different colour on the preview, the `LABEL` layer of the DXF reads
+`insert (in host plate)`, and the cut list gains a `nested_in` column.
+
+For jobs where true-shape nesting is worth the extra effort — lots of
+irregular parts, expensive material, interlocking profiles — use
+[Deepnest](https://deepnest.io/).
 
 ## Outline extraction: project, do not slice
 
@@ -156,6 +175,11 @@ GitHub Actions**.
   doing something else.
 - **3MF is not implemented.** Export STEP or STL instead; the app says so
   rather than failing quietly.
+- **Cutout rectangles are conservative.** A grid cell inside a cutout counts as
+  usable only when no edge of the cutout passes through it, so the result is
+  exact for a rectangular or slotted cutout and gives up a cell's width around
+  a curve. A part is never allowed to overhang into solid material to gain a
+  fraction of a millimetre.
 - All heavy work happens in a Web Worker, so the page stays responsive while a
   5 MB STEP file tessellates.
 - Settings persist in `localStorage`. Uploaded geometry never does.
@@ -175,6 +199,14 @@ fixture — a wooden box of 11 parts, all 10 mm thick:
 | 800 × 600 sheet | 2 sheets |
 | 250 mm wide board | 2149 mm minimum single board; 2 × 1200 mm boards |
 | measured minimum gap | exactly 5.000 mm in every case |
+
+Those are the plain bounding-box numbers, so the acceptance test runs with
+cutout nesting off. `test/cutouts.test.ts` covers what it buys on the same
+fixture: the two 320 × 50.6 mm openings in the front wall each take a
+250 × 39.8 mm lid wall, which takes the minimum 250 mm board from **2149.4 mm
+down to 1925 mm** — one 2000 mm board instead of two. It also asserts the
+thing that matters more: that nesting into cutouts never needs *more* sheets
+than without it, and that the measured gap stays at exactly 5.000 mm.
 
 One footnote on the board length. The spec quotes 2149 mm; the app reports
 **2149.4 mm**, and that 0.4 mm is real rather than slack. The tightest packing

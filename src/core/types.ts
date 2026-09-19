@@ -70,6 +70,12 @@ export interface Placement {
   rotation: number;
   /** The outline as actually placed, in sheet coordinates. */
   outline: Outline;
+  /**
+   * Set when this part sits inside a cutout of another part on the same sheet.
+   * Names the host, because it has to be cut before the host's cutout is
+   * released.
+   */
+  nestedIn?: string;
 }
 
 export interface Sheet {
@@ -89,6 +95,11 @@ export interface NestSettings {
   orientation: OrientationMode;
   sheetWidth: number;
   sheetHeight: number;
+  /**
+   * Pack parts the sheet had no room for into the cutouts of parts that did
+   * fit. Off gives plain bounding-box nesting, where a cutout is always waste.
+   */
+  nestInHoles: boolean;
 }
 
 export interface ValidationIssue {

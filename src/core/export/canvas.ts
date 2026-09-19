@@ -20,8 +20,8 @@ export function drawSheet(
   const s = opts.scale;
   const pad = 14;
   const colours = opts.dark
-    ? { bg: '#14161a', board: '#1e222a', edge: '#3a4050', cut: '#8fd0ff', label: '#9aa4b2', grain: '#5ac8a0' }
-    : { bg: '#ffffff', board: '#fbfbfa', edge: '#c8ccd4', cut: '#1b3a5c', label: '#6b7280', grain: '#0f7f62' };
+    ? { bg: '#14161a', board: '#1e222a', edge: '#3a4050', cut: '#8fd0ff', nested: '#e3a857', label: '#9aa4b2', grain: '#5ac8a0' }
+    : { bg: '#ffffff', board: '#fbfbfa', edge: '#c8ccd4', cut: '#1b3a5c', nested: '#a85f00', label: '#6b7280', grain: '#0f7f62' };
 
   ctx.save();
   ctx.fillStyle = colours.bg;
@@ -38,9 +38,11 @@ export function drawSheet(
   ctx.lineWidth = 1 / s;
   ctx.strokeRect(0, 0, sheet.width, sheet.height);
 
-  ctx.strokeStyle = colours.cut;
   ctx.lineWidth = 1.2 / s;
   for (const p of sheet.placements) {
+    // A part cut from inside another part's cutout is drawn apart, because it
+    // changes the cutting order.
+    ctx.strokeStyle = p.nestedIn ? colours.nested : colours.cut;
     trace(ctx, p.outline.exterior);
     ctx.stroke();
     for (const hole of p.outline.interiors) {
@@ -72,6 +74,7 @@ export function drawSheet(
     const x = p.x * s + 3;
     const y = (sheet.height - p.y - p.h) * s + 3;
     if (p.w * s < 34 || p.h * s < 15) continue;
+    ctx.fillStyle = p.nestedIn ? colours.nested : colours.label;
     clipText(ctx, p.name, x, y, p.w * s - 6);
     if (p.h * s > 28) {
       clipText(ctx, `${p.w.toFixed(1)} x ${p.h.toFixed(1)}`, x, y + fontSize + 2, p.w * s - 6);

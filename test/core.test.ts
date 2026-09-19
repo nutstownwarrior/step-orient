@@ -48,6 +48,7 @@ const settings: NestSettings = {
   orientation: 'grain-locked',
   sheetWidth: 1000,
   sheetHeight: 600,
+  nestInHoles: false,
 };
 
 describe('minimum-area rectangle', () => {
@@ -389,12 +390,24 @@ describe('exports', () => {
     expect(svg).toContain('data-part="panel, front"');
   });
 
-  it('writes a cut list with the columns SPEC 8 asks for', () => {
+  it('writes a cut list with the columns SPEC 8 asks for, plus the host', () => {
     const csv = cutListCsv([sheet, { ...sheet, index: 1 }]);
     const lines = csv.trim().split('\n');
-    expect(lines[0]).toBe('part,quantity,width_mm,height_mm,thickness_mm,sheet');
-    expect(lines[1]).toBe('"panel, front",1,200.00,100.00,10.00,1');
-    expect(lines[2].endsWith(',2')).toBe(true);
+    expect(lines[0]).toBe('part,quantity,width_mm,height_mm,thickness_mm,sheet,nested_in');
+    expect(lines[1]).toBe('"panel, front",1,200.00,100.00,10.00,1,');
+    expect(lines[2].endsWith(',2,')).toBe(true);
+  });
+
+  it('names the host part for a row cut from inside a cutout', () => {
+    const nestedSheet = {
+      ...sheet,
+      placements: [
+        sheet.placements[0],
+        { ...sheet.placements[0], partId: 'b', name: 'insert', nestedIn: 'panel, front' },
+      ],
+    };
+    const lines = cutListCsv([nestedSheet]).trim().split('\n');
+    expect(lines[2]).toBe('insert,1,200.00,100.00,10.00,1,"panel, front"');
   });
 });
 

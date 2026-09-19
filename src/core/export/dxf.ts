@@ -131,7 +131,10 @@ export function sheetToDxf(sheet: Sheet, jobName = 'nest'): string {
   for (const p of sheet.placements) {
     polyline(w, 'CUT', p.outline.exterior);
     for (const hole of p.outline.interiors) polyline(w, 'CUT', hole);
-    label(w, 'LABEL', p.x + textHeight * 0.4, p.y + textHeight * 0.4, textHeight, p.name);
+    // A nested part has to be cut before its host's cutout is released, so the
+    // label carries the host's name to the machine.
+    const text = p.nestedIn ? `${p.name} (in ${p.nestedIn})` : p.name;
+    label(w, 'LABEL', p.x + textHeight * 0.4, p.y + textHeight * 0.4, textHeight, text);
   }
 
   // SPEC 4 — the grain direction has to travel with the file.

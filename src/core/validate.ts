@@ -10,6 +10,12 @@ import type { Outline, Pt, Ring, Sheet, ValidationIssue, ValidationReport } from
  * numbers are trustworthy; a plausible-looking layout that is 2 mm out is worse
  * than no tool at all.
  */
+/**
+ * Integer rounding at 0.1 um can leave a sliver where two outlines touch
+ * exactly. A real overlap is orders of magnitude larger than this.
+ */
+const OVERLAP_TOLERANCE = 1e-3; // mm^2
+
 export function validate(
   sheets: Sheet[],
   gap: number,
@@ -59,7 +65,7 @@ export function validate(
         // that is already further apart than the worst seen cannot lower it.
         if (boxDist > minGap && boxDist >= gap - tolerance) continue;
 
-        if (boxDist <= tolerance && overlapArea(a.outline, b.outline) > tolerance) {
+        if (boxDist <= tolerance && overlapArea(a.outline, b.outline) > OVERLAP_TOLERANCE) {
           minGap = 0;
           issues.push({
             kind: 'overlap',
@@ -123,29 +129,52 @@ function boxDistance(a: Outline, b: Outline): number {
 const toPath = (ring: Ring): Path64 =>
   ring.map((p) => ({ x: Math.round(p.x * SCALE), y: Math.round(p.y * SCALE) }));
 
+/**
+ * The material a part actually occupies: its exterior with its cutouts taken
+ * out. Exteriors are wound counter-clockwise and cutouts clockwise, so the
+ * non-zero fill rule leaves the cutouts empty.
+ *
+ * Using the filled region rather than the exterior alone is what lets a part
+ * sit inside another part's cutout without reading as an overlap.
+ */
+const filledRegion = (outline: Outline): Paths64 => [
+  toPath(outline.exterior),
+  ...outline.interiors.map(toPath),
+];
+
 function overlapArea(a: Outline, b: Outline): number {
-  const subject: Paths64 = [toPath(a.exterior)];
-  const clip: Paths64 = [toPath(b.exterior)];
-  const result = intersect(subject, clip, FillRule.NonZero);
+  const result = intersect(filledRegion(a), filledRegion(b), FillRule.NonZero);
   let total = 0;
   for (const path of result) total += Math.abs(pathArea(path));
   return total / (SCALE * SCALE);
 }
 
-/** Minimum distance between two non-overlapping outlines, exterior to exterior. */
+const allRings = (outline: Outline): Ring[] => [outline.exterior, ...outline.interiors];
+
+/**
+ * Minimum distance between two non-overlapping parts, over every pair of
+ * rings.
+ *
+ * For two parts side by side this is the exterior-to-exterior distance, since
+ * any path from a cutout of one to the other must cross that part's own
+ * exterior first. For a part sitting inside another's cutout it is the
+ * distance to the cutout edge, which is the clearance that actually matters.
+ */
 export function outlineDistance(a: Outline, b: Outline): number {
   let best = Infinity;
-  const ea = a.exterior;
-  const eb = b.exterior;
-  for (let i = 0; i < ea.length; i++) {
-    const p1 = ea[i];
-    const p2 = ea[(i + 1) % ea.length];
-    for (let j = 0; j < eb.length; j++) {
-      const q1 = eb[j];
-      const q2 = eb[(j + 1) % eb.length];
-      const d = segmentDistance(p1, p2, q1, q2);
-      if (d < best) best = d;
-      if (best === 0) return 0;
+  for (const ra of allRings(a)) {
+    for (const rb of allRings(b)) {
+      for (let i = 0; i < ra.length; i++) {
+        const p1 = ra[i];
+        const p2 = ra[(i + 1) % ra.length];
+        for (let j = 0; j < rb.length; j++) {
+          const q1 = rb[j];
+          const q2 = rb[(j + 1) % rb.length];
+          const d = segmentDistance(p1, p2, q1, q2);
+          if (d < best) best = d;
+          if (best === 0) return 0;
+        }
+      }
     }
   }
   return best;
