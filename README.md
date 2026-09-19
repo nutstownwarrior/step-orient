@@ -1,1 +1,183 @@
-# step-orient
+# Sheet Nester
+
+A static web app that nests flat CAD parts onto sheets of wood or metal.
+Drop STEP, DXF or STL files in, get a cutting layout back as DXF, SVG, PNG and
+a CSV cut list.
+
+Everything runs in the browser. There is no backend, no upload and no API key —
+your geometry never leaves the machine.
+
+**Live: https://nutstownwarrior.github.io/step-orient/**
+
+## What it does
+
+1. **Reads your parts.** STEP is the primary path, via `occt-import-js` (a WASM
+   build of the OpenCascade importer). One file may hold several solids; each
+   becomes a part, and identical parts collapse into one row with a quantity.
+   DXF and STL also work.
+2. **Extracts the cutting outline.** For each solid it finds the plate normal,
+   projects *every* triangle onto that plane and unions them. See below — this
+   is the part that is easy to get wrong.
+3. **Orients for grain.** Each part is turned so the long edge of its
+   *minimum-area* rotated bounding rectangle runs along the sheet X axis. There
+   is a per-part override for a visible face where the grain has to run the
+   other way.
+4. **Nests.** MaxRects best-short-side-fit, run under five sort orders, keeping
+   whichever needs the fewest sheets. Parts are grouped by thickness and nested
+   separately, because parts of different thickness cannot share a board.
+5. **Checks the result.** An independent pass re-measures the actual placed
+   polygons: every part inside the sheet, every edge margin respected, every
+   part-to-part distance at least the requested gap, no overlaps. The measured
+   minimum gap is shown in the UI. If a check fails, the violation is shown
+   instead of a clean-looking result.
+
+## The two things worth knowing before you cut
+
+### Meshes, not B-rep: curved edges come out as polylines
+
+`occt-import-js` returns triangulated meshes. That is all this app needs and it
+is about 7 MB of WASM. The full `opencascade.js`, which would give exact B-rep
+geometry, is around 40 MB and would make the page unusable on a phone.
+
+The tradeoff: **a curved edge comes out as a polyline, not a true arc.** A
+circular hole becomes a many-sided polygon, and a filleted corner becomes a
+short chain of straight segments. For routing and laser cutting at the
+tessellation tolerance used here that is fine — the chord error is well under a
+tenth of a millimetre — but if you need real `ARC` entities in the DXF, this is
+not the tool.
+
+Straight edges are exact. A rectangular part comes out with exactly four
+vertices, which the test suite asserts.
+
+### Bounding-box nesting: small parts never go inside big parts' holes
+
+Packing is done on each part's bounding rectangle, not its true shape. The
+consequences:
+
+- A part with a large interior cutout wastes that area. Nothing will be placed
+  inside the hole, even if it would fit easily.
+- Two L-shaped parts will not be interlocked.
+- The measured gap is between the real outlines, so the layout is always safe —
+  just not always as tight as a true-shape nester would manage.
+
+For jobs where that difference is worth the extra effort — lots of irregular
+parts, expensive material — use [Deepnest](https://deepnest.io/), which does
+true-shape nesting with part-in-hole placement.
+
+## Outline extraction: project, do not slice
+
+The rule that matters: **never take a cross-section at mid-thickness.**
+
+Parts routinely have chamfers, rebates and countersinks. A mid-plane slice of
+such a part is *smaller* than the blank you actually have to cut, and you will
+find out when the piece comes off the machine 5 mm short.
+
+Instead, every triangle is projected onto the plate plane and the projections
+are unioned. That gives the maximum silhouette — the envelope that covers the
+part at every depth — which is the correct cutting outline. Through-holes
+survive the union and become interior rings. Blind pockets vanish, which is
+also correct: you do not cut those on the profile.
+
+The plate normal itself is found by taking the largest-area distinct triangle
+normals as candidate axes and keeping the one the solid is thinnest along —
+that extent is the material thickness. Not PCA, and not a raw axis-aligned
+bounding box: parts arrive in assembly coordinates at arbitrary orientations,
+and an AABB gives the wrong answer for anything rotated off-axis.
+
+The acceptance fixture is built to catch a slicing implementation. One part has
+a rebate that spans mid-thickness, so a slice reports 250 × 205 where the true
+blank is 250 × 210; another has a chamfered face. Both must come out as clean
+four-vertex rectangles at full size.
+
+## Sheet modes
+
+- **Fixed sheet** — enter width × height, get sheet count and utilisation.
+- **Find a size** — enter candidate stock sizes and get a ranked table of how
+  many sheets each needs and how much material that buys.
+- **Max width constraint** — for the common case where a supplier only sells
+  boards up to some width. Fix the width and the app binary-searches the
+  shortest board that takes the whole job in one piece, alongside how many
+  boards of each standard length you would need instead.
+
+## Running it
+
+```sh
+npm install
+npm run dev              # dev server
+npm test                 # unit tests and the acceptance fixture
+npm run build            # production build into dist/
+npm run preview -- --base /step-orient/   # serve the production build
+```
+
+Check the production build with `preview`, not just `dev`. GitHub Pages serves
+the site from `/<repo>/`, so `vite.config.ts` sets `base` to match; a
+dev-server-only check will miss a base-path mistake, which is the single most
+common way a Pages deployment of a Vite app breaks.
+
+### Regenerating the fixture
+
+`fixtures/box/*.step` are generated, not hand-written:
+
+```sh
+npm run fixtures
+```
+
+`scripts/make-fixtures.mjs` writes eleven STEP files in metres — the unit
+Onshape exports — each placed at an arbitrary assembly orientation so the
+plate-normal search has real work to do. CI regenerates them and fails if the
+committed files have drifted.
+
+## Deployment
+
+`.github/workflows/deploy.yml` runs the tests, builds with
+`VITE_BASE=/<repo-name>/`, and publishes `dist/` with
+`actions/upload-pages-artifact` and `actions/deploy-pages` on every push to
+`main`. `public/.nojekyll` stops Pages from swallowing asset paths that start
+with an underscore.
+
+To enable it on a fresh clone: repository **Settings → Pages → Source →
+GitHub Actions**.
+
+## Notes on the implementation
+
+- **Clipper2, via `clipper2-ts`.** Boolean operations run on scaled integers
+  (×10⁴) and union tens of thousands of triangles in milliseconds, where a
+  floating-point clipper is an order of magnitude slower and leaves slivers on
+  coincident triangle edges. The spec named the `clipper2-js` package, but its
+  `ClipperOffset` mangles even a plain rectangle and its `PolyTree` builder
+  throws on an uninitialised field; `clipper2-ts` is a current, correct port of
+  the same library and is used instead.
+- **Micron snapping.** After the union and the rotation into the grain frame,
+  coordinates are snapped to 1 µm. Without it, two nominally identical parts
+  differ in the ninth decimal place, the packer stops recognising redundant
+  free rectangles, and the layout comes out measurably worse.
+- **Free rotation is out of scope for v1.** The enum value is there and
+  selecting it raises a clear "not implemented" error rather than silently
+  doing something else.
+- **3MF is not implemented.** Export STEP or STL instead; the app says so
+  rather than failing quietly.
+- All heavy work happens in a Web Worker, so the page stays responsive while a
+  5 MB STEP file tessellates.
+- Settings persist in `localStorage`. Uploaded geometry never does.
+
+## Acceptance test
+
+`test/acceptance.test.ts` asserts the numbers in the spec against the committed
+fixture — a wooden box of 11 parts, all 10 mm thick:
+
+| check | expected |
+|---|---|
+| every part's exterior ring | exactly 4 vertices |
+| front wall interior rings | exactly 2, each 320 × 50.6 mm |
+| total outline area | 375,216 mm² |
+| 1000 × 600 sheet | 1 sheet, 62.5% used |
+| 1000 × 500 sheet | 1 sheet, 75.0% used |
+| 800 × 600 sheet | 2 sheets |
+| 250 mm wide board | 2149 mm minimum single board; 2 × 1200 mm boards |
+| measured minimum gap | exactly 5.000 mm in every case |
+
+One footnote on the board length. The spec quotes 2149 mm; the app reports
+**2149.4 mm**, and that 0.4 mm is real rather than slack. The tightest packing
+this geometry admits is 1550 mm of large parts end to end, a 5 mm gap, then a
+574.4 mm block of small parts, plus two 10 mm margins — so a 2149 mm board is
+genuinely 0.4 mm short. The test asserts to the nearest millimetre.

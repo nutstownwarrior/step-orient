@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Nest flat CAD parts onto sheets of wood or metal, entirely in the browser." />
+    <title>Sheet Nester</title>
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <h1>Sheet Nester</h1>
+        <p class="lede">
+          Drop STEP, DXF or STL parts in, get a cutting layout with DXF, SVG, PNG and a cut list.
+          Everything runs in your browser — nothing is uploaded.
+        </p>
+      </header>
+
+      <section id="drop" class="drop" tabindex="0" aria-label="Add files">
+        <input id="file-input" type="file" multiple accept=".step,.stp,.dxf,.stl,.3mf" hidden />
+        <strong>Drop files here</strong>
+        <span>or <button type="button" id="browse" class="link">browse</button> — .step, .stp, .dxf, .stl</span>
+        <div id="progress" class="progress" hidden>
+          <div class="spinner" aria-hidden="true"></div>
+          <span id="progress-text">Reading…</span>
+        </div>
+      </section>
+
+      <div id="warnings" class="warnings" hidden></div>
+
+      <section id="parts-section" hidden>
+        <h2>Parts</h2>
+        <div class="unit-row">
+          <label for="unit">Detected unit</label>
+          <select id="unit">
+            <option value="">as detected</option>
+            <option value="mm">millimetres</option>
+            <option value="cm">centimetres</option>
+            <option value="m">metres</option>
+            <option value="in">inches</option>
+            <option value="ft">feet</option>
+          </select>
+          <span id="unit-note" class="note"></span>
+        </div>
+        <div class="table-scroll">
+          <table id="parts">
+            <thead>
+              <tr>
+                <th>Part</th><th>Size (mm)</th><th>Thickness</th><th>Qty</th>
+                <th title="Run the grain across the short dimension for this part">Across grain</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p id="parts-summary" class="note"></p>
+      </section>
+
+      <section id="settings-section" hidden>
+        <h2>Settings</h2>
+        <div class="grid">
+          <label>Gap between parts (mm)<input id="gap" type="number" min="0" step="0.5" value="5" /></label>
+          <label>Edge margin (mm)<input id="margin" type="number" min="0" step="0.5" value="10" /></label>
+          <label>Kerf (mm)<input id="kerf" type="number" min="0" step="0.1" value="0" /></label>
+          <label>Orientation
+            <select id="orientation">
+              <option value="grain-locked">Grain locked (0° / 180°)</option>
+              <option value="quarter-turns">90° steps</option>
+              <option value="free">Free rotation (not implemented)</option>
+            </select>
+          </label>
+          <label>Sheet mode
+            <select id="mode">
+              <option value="fixed">Fixed sheet size</option>
+              <option value="candidates">Find a size</option>
+              <option value="board">Max width constraint</option>
+            </select>
+          </label>
+        </div>
+
+        <div id="mode-fixed" class="grid">
+          <label>Sheet width (mm)<input id="sheet-w" type="number" min="1" step="1" value="1000" /></label>
+          <label>Sheet height (mm)<input id="sheet-h" type="number" min="1" step="1" value="600" /></label>
+        </div>
+
+        <div id="mode-candidates" hidden>
+          <label class="wide">
+            <span>Candidate stock sizes, one <code>width x height</code> per line. The grain runs
+              along the first number; each size is also tried the other way round.</span>
+            <textarea id="candidates" rows="5" spellcheck="false"></textarea>
+          </label>
+        </div>
+
+        <div id="mode-board" class="grid" hidden>
+          <label>Board width (mm)<input id="board-w" type="number" min="1" step="1" value="250" /></label>
+          <label class="wide">
+            <span>Standard lengths (mm, comma separated)</span>
+            <input id="board-lengths" type="text" value="2000, 1200, 800" />
+          </label>
+        </div>
+
+        <button id="nest" type="button" class="primary">Nest</button>
+      </section>
+
+      <section id="results" hidden>
+        <h2>Results</h2>
+        <div id="validation" class="validation"></div>
+        <dl id="summary" class="summary"></dl>
+        <div id="tables"></div>
+        <div id="downloads" class="downloads"></div>
+        <div id="previews" class="previews"></div>
+      </section>
+
+      <footer>
+        <p class="note">
+          Bounding-box nesting: parts are packed by their rectangles, so a small part is never
+          placed inside a larger part's hole. See the README for when that matters.
+        </p>
+      </footer>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
