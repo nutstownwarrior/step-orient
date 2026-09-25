@@ -1,6 +1,16 @@
 import { intersect, area as pathArea, FillRule, type Path64, type Paths64 } from 'clipper2-ts';
 import { SCALE } from './outline';
-import type { Outline, Pt, Ring, Sheet, ValidationIssue, ValidationReport } from './types';
+import { SIDES } from './types';
+import type {
+  Gaps,
+  Margins,
+  Outline,
+  Pt,
+  Ring,
+  Sheet,
+  ValidationIssue,
+  ValidationReport,
+} from './types';
 
 /**
  * SPEC 6 — independent post-pack check on the actual placed polygons.
@@ -18,41 +28,56 @@ const OVERLAP_TOLERANCE = 1e-3; // mm^2
 
 export function validate(
   sheets: Sheet[],
-  gap: number,
-  margin: number,
+  gap: Gaps,
+  margin: Margins,
   tolerance = 1e-6
 ): ValidationReport {
   const issues: ValidationIssue[] = [];
   let minGap = Infinity;
-  let minMargin = Infinity;
+  const minMargin: Margins = { top: Infinity, right: Infinity, bottom: Infinity, left: Infinity };
+  // A pair far enough apart in every direction satisfies whichever axis gap
+  // applies to it, so this is the threshold the diagonal case has to clear.
+  const maxGap = Math.max(gap.x, gap.y);
 
   for (const sheet of sheets) {
     const items = sheet.placements;
 
     for (const p of items) {
       const b = ringBounds(p.outline.exterior);
-      const clearance = Math.min(b.minX, b.minY, sheet.width - b.maxX, sheet.height - b.maxY);
-      if (clearance < minMargin) minMargin = clearance;
-      if (b.minX < -tolerance || b.minY < -tolerance || b.maxX > sheet.width + tolerance || b.maxY > sheet.height + tolerance) {
+      const clearance: Margins = {
+        left: b.minX,
+        right: sheet.width - b.maxX,
+        bottom: b.minY,
+        top: sheet.height - b.maxY,
+      };
+      for (const side of SIDES) {
+        if (clearance[side] < minMargin[side]) minMargin[side] = clearance[side];
+      }
+
+      if (SIDES.some((side) => clearance[side] < -tolerance)) {
         issues.push({
           kind: 'outside-sheet',
           sheet: sheet.index,
           parts: [p.name],
-          measured: clearance,
-          required: margin,
+          measured: Math.min(...SIDES.map((side) => clearance[side])),
+          required: 0,
           message: `${p.name} extends past the edge of sheet ${sheet.index + 1}`,
         });
-      } else if (clearance < margin - tolerance) {
-        issues.push({
-          kind: 'margin',
-          sheet: sheet.index,
-          parts: [p.name],
-          measured: clearance,
-          required: margin,
-          message: `${p.name} is ${clearance.toFixed(3)} mm from the edge of sheet ${
-            sheet.index + 1
-          }, less than the ${margin} mm margin`,
-        });
+      } else {
+        for (const side of SIDES) {
+          if (clearance[side] >= margin[side] - tolerance) continue;
+          issues.push({
+            kind: 'margin',
+            sheet: sheet.index,
+            parts: [p.name],
+            side,
+            measured: clearance[side],
+            required: margin[side],
+            message: `${p.name} is ${clearance[side].toFixed(3)} mm from the ${side} edge of sheet ${
+              sheet.index + 1
+            }, less than the ${margin[side]} mm ${side} margin`,
+          });
+        }
       }
     }
 
@@ -60,10 +85,12 @@ export function validate(
       for (let j = i + 1; j < items.length; j++) {
         const a = items[i];
         const b = items[j];
-        const boxDist = boxDistance(a.outline, b.outline);
+        const sep = axisSeparation(a.outline, b.outline);
+        const boxDist = Math.hypot(sep.x, sep.y);
         // Polygon distance is never less than bounding-box distance, so a pair
-        // that is already further apart than the worst seen cannot lower it.
-        if (boxDist > minGap && boxDist >= gap - tolerance) continue;
+        // already further apart than both the worst seen and the larger gap
+        // can neither lower the reported minimum nor fail the check.
+        if (boxDist > minGap && boxDist >= maxGap - tolerance) continue;
 
         if (boxDist <= tolerance && overlapArea(a.outline, b.outline) > OVERLAP_TOLERANCE) {
           minGap = 0;
@@ -72,7 +99,7 @@ export function validate(
             sheet: sheet.index,
             parts: [a.name, b.name],
             measured: 0,
-            required: gap,
+            required: maxGap,
             message: `${a.name} overlaps ${b.name} on sheet ${sheet.index + 1}`,
           });
           continue;
@@ -80,16 +107,25 @@ export function validate(
 
         const d = outlineDistance(a.outline, b.outline);
         if (d < minGap) minGap = d;
-        if (d < gap - tolerance) {
+
+        // Two parts satisfy the gap if they are clear along one axis by that
+        // axis's gap, or — the case of a part nested in a cutout, where
+        // neither projection separates — clear in every direction by the
+        // larger of the two.
+        const clear =
+          sep.x >= gap.x - tolerance || sep.y >= gap.y - tolerance || d >= maxGap - tolerance;
+        if (!clear) {
           issues.push({
             kind: 'gap',
             sheet: sheet.index,
             parts: [a.name, b.name],
             measured: d,
-            required: gap,
-            message: `${a.name} and ${b.name} are ${d.toFixed(3)} mm apart on sheet ${
-              sheet.index + 1
-            }, less than the ${gap} mm gap`,
+            required: maxGap,
+            message:
+              `${a.name} and ${b.name} on sheet ${sheet.index + 1} are ${sep.x.toFixed(3)} mm ` +
+              `apart horizontally and ${sep.y.toFixed(3)} mm vertically ` +
+              `(${d.toFixed(3)} mm at the closest point), against a ${gap.x} mm horizontal ` +
+              `and ${gap.y} mm vertical gap`,
           });
         }
       }
@@ -98,8 +134,8 @@ export function validate(
 
   return {
     ok: issues.length === 0,
-    minGap: Number.isFinite(minGap) ? minGap : Infinity,
-    minMargin: Number.isFinite(minMargin) ? minMargin : Infinity,
+    minGap,
+    minMargin,
     issues,
   };
 }
@@ -118,12 +154,17 @@ function ringBounds(ring: Ring) {
   return { minX, minY, maxX, maxY };
 }
 
-function boxDistance(a: Outline, b: Outline): number {
+/**
+ * How far apart the two outlines are along each axis, zero where their
+ * projections onto that axis overlap.
+ */
+function axisSeparation(a: Outline, b: Outline): { x: number; y: number } {
   const ba = ringBounds(a.exterior);
   const bb = ringBounds(b.exterior);
-  const dx = Math.max(0, Math.max(ba.minX - bb.maxX, bb.minX - ba.maxX));
-  const dy = Math.max(0, Math.max(ba.minY - bb.maxY, bb.minY - ba.maxY));
-  return Math.hypot(dx, dy);
+  return {
+    x: Math.max(0, Math.max(ba.minX - bb.maxX, bb.minX - ba.maxX)),
+    y: Math.max(0, Math.max(ba.minY - bb.maxY, bb.minY - ba.maxY)),
+  };
 }
 
 const toPath = (ring: Ring): Path64 =>

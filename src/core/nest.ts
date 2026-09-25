@@ -3,7 +3,7 @@ import { holeBins, pointInRing } from './holes';
 import { bounds, mapOutline, rotateOutline, translateRing } from './orient';
 import { outlineArea } from './outline';
 import { validate } from './validate';
-import type { NestResult, NestSettings, Part, Placement, Sheet } from './types';
+import type { Gaps, Margins, NestResult, NestSettings, Part, Placement, Sheet } from './types';
 
 export class PartTooLargeError extends Error {
   constructor(
@@ -11,11 +11,14 @@ export class PartTooLargeError extends Error {
     readonly partW: number,
     readonly partH: number,
     readonly sheetW: number,
-    readonly sheetH: number
+    readonly sheetH: number,
+    readonly usableW = sheetW,
+    readonly usableH = sheetH
   ) {
     super(
       `${partName} is ${partW.toFixed(1)} x ${partH.toFixed(1)} mm and does not fit on a ` +
-        `${sheetW} x ${sheetH} mm sheet once the gap and margin are allowed for`
+        `${sheetW} x ${sheetH} mm sheet, which leaves ${usableW.toFixed(1)} x ` +
+        `${usableH.toFixed(1)} mm once the edge margins are taken off`
     );
     this.name = 'PartTooLargeError';
   }
@@ -47,17 +50,16 @@ function expand(parts: Part[]): Instance[] {
  * covers both. The per-part override turns that instance a quarter turn, for
  * a visible face where the grain has to run across the short dimension.
  */
-function boxesFor(part: Part, settings: NestSettings, gap: number): Box[] {
-  const w = part.boxW + gap;
-  const h = part.boxH + gap;
+function boxesFor(part: Part, settings: NestSettings, gap: Gaps): Box[] {
+  // Inflate after rotating, not before: the X gap always belongs to the box's
+  // width and the Y gap to its height, whichever way the part is turned.
+  const upright = { w: part.boxW + gap.x, h: part.boxH + gap.y, rotation: 0 };
+  const turned = { w: part.boxH + gap.x, h: part.boxW + gap.y, rotation: 90 };
   switch (settings.orientation) {
     case 'grain-locked':
-      return part.grainOverride ? [{ w: h, h: w, rotation: 90 }] : [{ w, h, rotation: 0 }];
+      return part.grainOverride ? [turned] : [upright];
     case 'quarter-turns':
-      return [
-        { w, h, rotation: 0 },
-        { w: h, h: w, rotation: 90 },
-      ];
+      return [upright, turned];
     case 'free':
       throw new Error('free rotation is not implemented in v1 — use grain locked or 90 deg steps');
   }
@@ -83,13 +85,16 @@ const HOLE_ROUNDS = 4;
 function packGroup(
   instances: Instance[],
   settings: NestSettings,
-  gap: number,
+  gap: Gaps,
   sheetW: number,
   sheetH: number
 ): GroupLayout {
   const partOf = new Map(instances.map((i) => [i.id, i.part]));
-  const regionW = sheetW - 2 * settings.margin + gap;
-  const regionH = sheetH - 2 * settings.margin + gap;
+  const margin = settings.margin;
+  const usableW = sheetW - margin.left - margin.right;
+  const usableH = sheetH - margin.bottom - margin.top;
+  const regionW = usableW + gap.x;
+  const regionH = usableH + gap.y;
 
   const items: PackItem[] = instances.map((inst) => ({
     id: inst.id,
@@ -100,7 +105,7 @@ function packGroup(
     const fits = item.boxes.some((b) => b.w <= regionW + 1e-9 && b.h <= regionH + 1e-9);
     if (!fits) {
       const part = instances.find((i) => i.id === item.id)!.part;
-      throw new PartTooLargeError(part.name, part.boxW, part.boxH, sheetW, sheetH);
+      throw new PartTooLargeError(part.name, part.boxW, part.boxH, sheetW, sheetH, usableW, usableH);
     }
   }
 
@@ -118,9 +123,9 @@ function packGroup(
       if (placed.length === 0) {
         throw new Error(`nesting made no progress with ${remaining.length} parts left to place`);
       }
-      const sheet = placed.map((p) => toPlacement(p, partOf.get(p.id)!, gap, settings.margin));
+      const sheet = placed.map((p) => toPlacement(p, partOf.get(p.id)!, gap, margin));
       const filled = settings.nestInHoles
-        ? fillCutouts(sheet, rejected, partOf, gap, settings.margin)
+        ? fillCutouts(sheet, rejected, partOf, gap, margin)
         : { placements: sheet, leftover: rejected };
       bins.push(filled.placements);
       remaining = filled.leftover;
@@ -149,8 +154,8 @@ function fillCutouts(
   placements: Placement[],
   rejected: PackItem[],
   partOf: Map<string, Part>,
-  gap: number,
-  margin: number
+  gap: Gaps,
+  margin: Margins
 ): { placements: Placement[]; leftover: PackItem[] } {
   const all = [...placements];
   let hosts = placements;
@@ -178,9 +183,9 @@ function fillCutouts(
  * than its bounding box, so an L-shaped or slotted cutout does not claim a
  * part that actually sits in the cutout next to it.
  */
-function hostNameAt(placements: Placement[], placed: Placed, gap: number, margin: number): string | undefined {
-  const x = placed.x + margin + (placed.w - gap) / 2;
-  const y = placed.y + margin + (placed.h - gap) / 2;
+function hostNameAt(placements: Placement[], placed: Placed, gap: Gaps, margin: Margins): string | undefined {
+  const x = placed.x + margin.left + (placed.w - gap.x) / 2;
+  const y = placed.y + margin.bottom + (placed.h - gap.y) / 2;
   for (const host of placements) {
     for (const hole of host.outline.interiors) {
       if (pointInRing(x, y, hole)) return host.name;
@@ -189,18 +194,19 @@ function hostNameAt(placements: Placement[], placed: Placed, gap: number, margin
   return undefined;
 }
 
-function toPlacement(placed: Placed, part: Part, gap: number, margin: number): Placement {
+function toPlacement(placed: Placed, part: Part, gap: Gaps, margin: Margins): Placement {
   const oriented = rotateOutline(part.outline, placed.rotation);
   const b = bounds(oriented);
-  const x = placed.x + margin;
-  const y = placed.y + margin;
+  // The packed region starts at the bottom-left corner of the usable area.
+  const x = placed.x + margin.left;
+  const y = placed.y + margin.bottom;
   return {
     partId: part.id,
     name: part.name,
     x,
     y,
-    w: placed.w - gap,
-    h: placed.h - gap,
+    w: placed.w - gap.x,
+    h: placed.h - gap.y,
     rotation: placed.rotation,
     outline: mapOutline(oriented, (r) => translateRing(r, x - b.minX, y - b.minY)),
   };
@@ -209,7 +215,7 @@ function toPlacement(placed: Placed, part: Part, gap: number, margin: number): P
 /** Nest every part onto sheets of the given fixed size. */
 export function nest(parts: Part[], settings: NestSettings): NestResult {
   // SPEC 5 — the kerf is material the cutter removes, so it adds to the gap.
-  const gap = settings.gap + settings.kerf;
+  const gap: Gaps = { x: settings.gap.x + settings.kerf, y: settings.gap.y + settings.kerf };
 
   // SPEC 5 — parts of different thickness cannot share a sheet, and silently
   // mixing them is a real-money bug.

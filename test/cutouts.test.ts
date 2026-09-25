@@ -6,6 +6,7 @@ import { minimumBoardLength } from '../src/core/sheets';
 import { canonicalise } from '../src/core/orient';
 import { outlineArea } from '../src/core/outline';
 import { validate } from '../src/core/validate';
+import { uniformGaps, uniformMargins } from '../src/core/types';
 import type { NestSettings, Outline, Part, Ring, Sheet } from '../src/core/types';
 
 const rect = (x0: number, y0: number, x1: number, y1: number): Ring => [
@@ -20,8 +21,8 @@ const hole = (x0: number, y0: number, x1: number, y1: number): Ring =>
   rect(x0, y0, x1, y1).slice().reverse();
 
 const settings: NestSettings = {
-  gap: 5,
-  margin: 10,
+  gap: uniformGaps(5),
+  margin: uniformMargins(10),
   kerf: 0,
   orientation: 'grain-locked',
   sheetWidth: 1000,
@@ -143,7 +144,7 @@ describe('nesting into cutouts', () => {
   });
 
   it('honours the kerf inside a cutout too', () => {
-    const on = nest(parts(), { ...settings, gap: 4, kerf: 3 });
+    const on = nest(parts(), { ...settings, gap: uniformGaps(4), kerf: 3 });
     expect(on.sheets).toHaveLength(1);
     expect(on.validation.ok).toBe(true);
     expect(on.validation.minGap).toBeGreaterThanOrEqual(7 - 1e-6);
@@ -189,14 +190,14 @@ describe('validation with parts inside cutouts', () => {
 
   it('does not call a part inside a cutout an overlap', () => {
     const inner = place('inner', { exterior: rect(155, 155, 445, 345), interiors: [] });
-    const report = validate([sheetWith([host, inner])], 5, 10);
+    const report = validate([sheetWith([host, inner])], uniformGaps(5), uniformMargins(10));
     expect(report.ok).toBe(true);
     expect(report.minGap).toBeCloseTo(5, 6);
   });
 
   it('still catches a part that is too close to the cutout edge', () => {
     const inner = place('inner', { exterior: rect(152, 152, 445, 345), interiors: [] });
-    const report = validate([sheetWith([host, inner])], 5, 10);
+    const report = validate([sheetWith([host, inner])], uniformGaps(5), uniformMargins(10));
     expect(report.ok).toBe(false);
     expect(report.issues[0].kind).toBe('gap');
     expect(report.minGap).toBeCloseTo(2, 6);
@@ -204,14 +205,14 @@ describe('validation with parts inside cutouts', () => {
 
   it('still catches a part that spills out of the cutout into solid material', () => {
     const inner = place('inner', { exterior: rect(155, 155, 470, 345), interiors: [] });
-    const report = validate([sheetWith([host, inner])], 5, 10);
+    const report = validate([sheetWith([host, inner])], uniformGaps(5), uniformMargins(10));
     expect(report.issues.some((i) => i.kind === 'overlap')).toBe(true);
   });
 
   it('measures two side-by-side parts from their exteriors, ignoring their cutouts', () => {
     const a = place('a', { exterior: rect(0, 0, 100, 100), interiors: [hole(20, 20, 80, 80)] });
     const b = place('b', { exterior: rect(107, 0, 207, 100), interiors: [hole(127, 20, 187, 80)] });
-    const report = validate([sheetWith([a, b])], 5, 0);
+    const report = validate([sheetWith([a, b])], uniformGaps(5), uniformMargins(0));
     expect(report.minGap).toBeCloseTo(7, 6);
   });
 });

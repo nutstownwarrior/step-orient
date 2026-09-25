@@ -61,9 +61,31 @@
 
       <section id="settings-section" hidden>
         <h2>Settings</h2>
+        <fieldset class="group">
+          <legend>Gap between parts (mm)</legend>
+          <div class="grid">
+            <label>Horizontal<input id="gap-x" type="number" min="0" step="0.5" value="5" /></label>
+            <label>Vertical<input id="gap-y" type="number" min="0" step="0.5" value="5" /></label>
+          </div>
+          <p class="note">A gap is shared between two parts, so it is one figure per direction
+            rather than one per side.</p>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Edge margin (mm)</legend>
+          <div class="grid">
+            <label>Top<input id="margin-top" type="number" min="0" step="0.5" value="10" /></label>
+            <label>Right<input id="margin-right" type="number" min="0" step="0.5" value="10" /></label>
+            <label>Bottom<input id="margin-bottom" type="number" min="0" step="0.5" value="10" /></label>
+            <label>Left<input id="margin-left" type="number" min="0" step="0.5" value="10" /></label>
+          </div>
+          <label class="check">
+            <input id="margin-linked" type="checkbox" checked />
+            <span>Same all round</span>
+          </label>
+        </fieldset>
+
         <div class="grid">
-          <label>Gap between parts (mm)<input id="gap" type="number" min="0" step="0.5" value="5" /></label>
-          <label>Edge margin (mm)<input id="margin" type="number" min="0" step="0.5" value="10" /></label>
           <label>Kerf (mm)<input id="kerf" type="number" min="0" step="0.1" value="0" /></label>
           <label>Orientation
             <select id="orientation">

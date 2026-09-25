@@ -133,6 +133,41 @@ Parts keep their path in the archive as their source, so a part that came out
 of `box.zip/parts/side.step` says so in the parts table, but is still named
 `side`.
 
+## Gaps and margins
+
+Two separate controls, because they are two different things.
+
+**Gap between parts** is set per direction: **horizontal** for parts sitting
+side by side, **vertical** for parts stacked one above the other. One figure
+per direction rather than one per side, because the gap between two parts is a
+single distance that both of them share — "the gap on A's right" and "the gap
+on B's left" are the same measurement. What can genuinely differ is the
+direction, so a router that needs more room across the feed than along it gets
+what it asks for. The kerf is added to both.
+
+**Edge margin** is set per side: **top, right, bottom, left**. Use it for a
+damaged edge, a clamping strip, or a board that is only square on three sides.
+"Same all round" keeps the four boxes in step for the common case. The usable
+area is drawn as a dashed rectangle on every sheet preview, so an asymmetric
+margin is visible rather than something you have to take on trust.
+
+Both are guaranteed by construction rather than by collision tests: every
+part's box is inflated by the horizontal gap in X and the vertical gap in Y,
+the packing region is the usable area inflated by the same, and the margins are
+added back to each placed coordinate afterwards.
+
+Validation then re-measures the placed polygons and reports the closest
+approach to *each* edge, not one worst case. A pair of parts passes when it is
+clear along one axis by that axis's gap — or, for a part nested in a cutout
+where neither projection separates the two, clear in every direction by the
+larger of the two gaps. When the horizontal and vertical gaps are equal that
+reduces to exactly the old rule: nothing anywhere closer than the gap.
+
+Inside a cutout the *larger* of the two gaps is used. A cutout edge can run at
+any angle, so there is no axis to charge the smaller gap to, and a part ending
+up a millimetre closer to a cutout edge than asked for is a real mistake where
+a cutout giving up a millimetre of room is not.
+
 ## Sheet modes
 
 - **Fixed sheet** — enter width × height, get sheet count and utilisation.

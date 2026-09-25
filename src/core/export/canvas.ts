@@ -1,11 +1,13 @@
 import { grainArrow } from './dxf';
-import type { Ring, Sheet } from '../types';
+import type { Margins, Ring, Sheet } from '../types';
 
 export interface DrawOptions {
   /** Pixels per millimetre. */
   scale: number;
   labels: boolean;
   dark: boolean;
+  /** Draws the usable area, so per-side margins are visible at a glance. */
+  margin?: Margins;
 }
 
 /**
@@ -20,8 +22,8 @@ export function drawSheet(
   const s = opts.scale;
   const pad = 14;
   const colours = opts.dark
-    ? { bg: '#14161a', board: '#1e222a', edge: '#3a4050', cut: '#8fd0ff', nested: '#e3a857', label: '#9aa4b2', grain: '#5ac8a0' }
-    : { bg: '#ffffff', board: '#fbfbfa', edge: '#c8ccd4', cut: '#1b3a5c', nested: '#a85f00', label: '#6b7280', grain: '#0f7f62' };
+    ? { bg: '#14161a', board: '#1e222a', edge: '#3a4050', cut: '#8fd0ff', nested: '#e3a857', label: '#9aa4b2', grain: '#5ac8a0', margin: '#4a5263' }
+    : { bg: '#ffffff', board: '#fbfbfa', edge: '#c8ccd4', cut: '#1b3a5c', nested: '#a85f00', label: '#6b7280', grain: '#0f7f62', margin: '#b9bfc9' };
 
   ctx.save();
   ctx.fillStyle = colours.bg;
@@ -37,6 +39,16 @@ export function drawSheet(
   ctx.strokeStyle = colours.edge;
   ctx.lineWidth = 1 / s;
   ctx.strokeRect(0, 0, sheet.width, sheet.height);
+
+  const m = opts.margin;
+  if (m && (m.top > 0 || m.right > 0 || m.bottom > 0 || m.left > 0)) {
+    ctx.save();
+    ctx.strokeStyle = colours.margin;
+    ctx.lineWidth = 0.8 / s;
+    ctx.setLineDash([6 / s, 4 / s]);
+    ctx.strokeRect(m.left, m.bottom, sheet.width - m.left - m.right, sheet.height - m.bottom - m.top);
+    ctx.restore();
+  }
 
   ctx.lineWidth = 1.2 / s;
   for (const p of sheet.placements) {
@@ -109,14 +121,19 @@ function clipText(
 }
 
 /** Render a sheet to a PNG blob at the given resolution. */
-export async function sheetToPng(sheet: Sheet, pixelsPerMm = 2, dark = false): Promise<Blob> {
+export async function sheetToPng(
+  sheet: Sheet,
+  pixelsPerMm = 2,
+  dark = false,
+  margin?: Margins
+): Promise<Blob> {
   const pad = 14;
   const canvas = document.createElement('canvas');
   canvas.width = Math.ceil(sheet.width * pixelsPerMm) + pad * 2;
   canvas.height = Math.ceil(sheet.height * pixelsPerMm) + pad * 2;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('could not get a 2d canvas context');
-  drawSheet(ctx, sheet, { scale: pixelsPerMm, labels: true, dark });
+  drawSheet(ctx, sheet, { scale: pixelsPerMm, labels: true, dark, margin });
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('PNG encoding failed'))), 'image/png');
   });

@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { loadFixtureParts } from './helpers';
 import { nest } from '../src/core/nest';
 import { minimumBoardLength } from '../src/core/sheets';
+import { SIDES, uniformGaps, uniformMargins } from '../src/core/types';
 import type { NestSettings, Part } from '../src/core/types';
 
 /**
@@ -32,8 +33,8 @@ const EXPECTED: Record<string, [number, number]> = {
 const TOTAL_OUTLINE_AREA = 375_216;
 
 const settings: NestSettings = {
-  gap: 5,
-  margin: 10,
+  gap: uniformGaps(5),
+  margin: uniformMargins(10),
   kerf: 0,
   orientation: 'grain-locked',
   sheetWidth: 1000,
@@ -129,7 +130,11 @@ describe('nesting, 5 mm gap, 10 mm margin, grain locked', () => {
       const result = run(w, h);
       expect(result.validation.ok, `${w}x${h} validation`).toBe(true);
       expect(result.validation.minGap.toFixed(3), `${w}x${h} min gap`).toBe('5.000');
-      expect(result.validation.minMargin, `${w}x${h} min margin`).toBeGreaterThanOrEqual(10 - 1e-6);
+      for (const side of SIDES) {
+        expect(result.validation.minMargin[side], `${w}x${h} ${side} margin`).toBeGreaterThanOrEqual(
+          10 - 1e-6
+        );
+      }
     }
   });
 });
