@@ -122,8 +122,12 @@ export function minimumBoardLength(
   standardLengths: number[] = [],
   tolerance = 0.01
 ): BoardResult {
-  const gap = settings.gap + settings.kerf;
-  const usableWidth = boardWidth - 2 * settings.margin;
+  // The board runs along X, so its width is the sheet's Y extent: the top and
+  // bottom margins eat into it, and the left and right margins into its length.
+  const gapX = settings.gap.x + settings.kerf;
+  const gapY = settings.gap.y + settings.kerf;
+  const alongOverhead = settings.margin.left + settings.margin.right;
+  const usableWidth = boardWidth - settings.margin.top - settings.margin.bottom;
 
   const instances = parts.flatMap((p) =>
     Array.from({ length: Math.max(1, Math.floor(p.quantity)) }, () => p)
@@ -150,9 +154,9 @@ export function minimumBoardLength(
 
   // Everything laid end to end always fits; that is the upper bound.
   let hi =
-    2 * settings.margin +
-    instances.reduce((s, p) => s + p.boxW + gap, 0) -
-    gap;
+    alongOverhead +
+    instances.reduce((s, p) => s + p.boxW + gapX, 0) -
+    gapX;
   if (!fitsOnOne(parts, settings, boardWidth, hi)) {
     // Should not happen, but never report a length that does not actually work.
     hi *= 2;
@@ -162,10 +166,10 @@ export function minimumBoardLength(
   }
 
   // Area gives a hard lower bound no packing can beat.
-  const totalArea = instances.reduce((s, p) => s + (p.boxW + gap) * (p.boxH + gap), 0);
+  const totalArea = instances.reduce((s, p) => s + (p.boxW + gapX) * (p.boxH + gapY), 0);
   let lo = Math.max(
-    ...instances.map((p) => p.boxW + 2 * settings.margin),
-    totalArea / (usableWidth + gap) + 2 * settings.margin - gap
+    ...instances.map((p) => p.boxW + alongOverhead),
+    totalArea / (usableWidth + gapY) + alongOverhead - gapX
   );
   if (fitsOnOne(parts, settings, boardWidth, lo)) hi = lo;
 

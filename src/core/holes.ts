@@ -1,7 +1,7 @@
 import { inflatePaths, EndType, JoinType, type Path64 } from 'clipper2-ts';
 import { pruneContained, type Rect } from './maxrects';
 import { ringArea, SCALE } from './outline';
-import type { Placement, Ring } from './types';
+import type { Gaps, Margins, Placement, Ring } from './types';
 
 /**
  * Nesting into the cutouts of other parts.
@@ -176,16 +176,28 @@ const spanInside = (row: boolean[], from: number, to: number): boolean => {
 
 /**
  * Free rectangles inside the cutouts of parts already placed on a sheet,
- * expressed in the packer's coordinates: origin shifted by `margin`, and each
- * rectangle grown by `gap` to match the inflated boxes the packer places.
+ * expressed in the packer's coordinates: origin shifted to the bottom-left of
+ * the usable area, and each rectangle grown by the gap to match the inflated
+ * boxes the packer places.
+ *
+ * The cutout is shrunk by the *larger* of the two gaps. A cutout edge can run
+ * at any angle, so there is no axis to charge the smaller gap to — and a part
+ * that ends up a millimetre closer to a cutout edge than asked for is a real
+ * mistake, where a cutout that gives up a millimetre of room is not.
  */
-export function holeBins(placements: Placement[], gap: number, margin: number): Rect[] {
+export function holeBins(placements: Placement[], gap: Gaps, margin: Margins): Rect[] {
+  const inset = Math.max(gap.x, gap.y);
   const rects: Rect[] = [];
   for (const placement of placements) {
     for (const hole of placement.outline.interiors) {
-      for (const region of insetRing(hole, gap)) {
+      for (const region of insetRing(hole, inset)) {
         for (const r of maximalRectangles(region)) {
-          rects.push({ x: r.x - margin, y: r.y - margin, w: r.w + gap, h: r.h + gap });
+          rects.push({
+            x: r.x - margin.left,
+            y: r.y - margin.bottom,
+            w: r.w + gap.x,
+            h: r.h + gap.y,
+          });
         }
       }
     }

@@ -5,7 +5,8 @@ import { cutListCsv } from './core/export/csv';
 import { sheetToDxf } from './core/export/dxf';
 import { sheetToSvg } from './core/export/svg';
 import { DEFAULT_STOCK_SIZES, type BoardResult, type StockOption } from './core/sheets';
-import type { NestResult, NestSettings, OrientationMode, Part, Unit } from './core/types';
+import { SIDES, uniformGaps, uniformMargins } from './core/types';
+import type { Gaps, Margins, NestResult, NestSettings, OrientationMode, Part, Unit } from './core/types';
 import type { SheetMode, WorkerRequest, WorkerResponse } from './worker/protocol';
 
 const $ = <T extends HTMLElement>(id: string): T => {
@@ -48,8 +49,9 @@ let result: NestResult | null = null;
 const SETTINGS_KEY = 'sheet-nester/settings/v1';
 
 interface StoredSettings {
-  gap: number;
-  margin: number;
+  gap: Gaps;
+  margin: Margins;
+  marginLinked: boolean;
   kerf: number;
   orientation: OrientationMode;
   mode: SheetMode['kind'];
@@ -63,8 +65,9 @@ interface StoredSettings {
 }
 
 const defaults: StoredSettings = {
-  gap: 5,
-  margin: 10,
+  gap: uniformGaps(5),
+  margin: uniformMargins(10),
+  marginLinked: true,
   kerf: 0,
   orientation: 'grain-locked',
   mode: 'fixed',
@@ -81,10 +84,26 @@ const defaults: StoredSettings = {
 function loadSettings(): StoredSettings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    return raw ? { ...defaults, ...(JSON.parse(raw) as Partial<StoredSettings>) } : { ...defaults };
+    if (!raw) return { ...defaults };
+    return migrate({ ...defaults, ...(JSON.parse(raw) as Record<string, unknown>) });
   } catch {
     return { ...defaults };
   }
+}
+
+/**
+ * Settings saved before gaps and margins became per-axis and per-side held a
+ * single number for each. Spread them back out rather than dropping a returning
+ * user's settings on the floor.
+ */
+function migrate(stored: Record<string, unknown>): StoredSettings {
+  const s = { ...stored } as StoredSettings & Record<string, unknown>;
+  if (typeof stored.gap === 'number') s.gap = uniformGaps(stored.gap);
+  if (typeof stored.margin === 'number') {
+    s.margin = uniformMargins(stored.margin);
+    s.marginLinked = true;
+  }
+  return s;
 }
 
 function saveSettings(): void {
@@ -97,8 +116,14 @@ function saveSettings(): void {
 
 function readSettings(): StoredSettings {
   return {
-    gap: numberOf('gap', 0),
-    margin: numberOf('margin', 0),
+    gap: { x: numberOf('gap-x', 0), y: numberOf('gap-y', 0) },
+    margin: {
+      top: numberOf('margin-top', 0),
+      right: numberOf('margin-right', 0),
+      bottom: numberOf('margin-bottom', 0),
+      left: numberOf('margin-left', 0),
+    },
+    marginLinked: ($('margin-linked') as HTMLInputElement).checked,
     kerf: numberOf('kerf', 0),
     orientation: ($('orientation') as HTMLSelectElement).value as OrientationMode,
     mode: ($('mode') as HTMLSelectElement).value as SheetMode['kind'],
@@ -118,8 +143,10 @@ function numberOf(id: string, min: number): number {
 }
 
 function applySettings(s: StoredSettings): void {
-  ($('gap') as HTMLInputElement).value = String(s.gap);
-  ($('margin') as HTMLInputElement).value = String(s.margin);
+  ($('gap-x') as HTMLInputElement).value = String(s.gap.x);
+  ($('gap-y') as HTMLInputElement).value = String(s.gap.y);
+  for (const side of SIDES) ($(`margin-${side}`) as HTMLInputElement).value = String(s.margin[side]);
+  ($('margin-linked') as HTMLInputElement).checked = s.marginLinked;
   ($('kerf') as HTMLInputElement).value = String(s.kerf);
   ($('orientation') as HTMLSelectElement).value = s.orientation;
   ($('mode') as HTMLSelectElement).value = s.mode;
@@ -131,6 +158,20 @@ function applySettings(s: StoredSettings): void {
   ($('unit') as HTMLSelectElement).value = s.unit;
   ($('nest-in-holes') as HTMLInputElement).checked = s.nestInHoles;
   syncMode();
+  syncMarginLink();
+}
+
+/**
+ * "Same all round" keeps the four margin boxes in step, so the common case
+ * stays a single number to type while the per-side boxes remain visible.
+ */
+function syncMarginLink(): void {
+  const linked = ($('margin-linked') as HTMLInputElement).checked;
+  for (const side of SIDES) ($(`margin-${side}`) as HTMLInputElement).disabled = linked && side !== 'top';
+  if (linked) {
+    const value = ($('margin-top') as HTMLInputElement).value;
+    for (const side of SIDES) ($(`margin-${side}`) as HTMLInputElement).value = value;
+  }
 }
 
 function syncMode(): void {
@@ -319,9 +360,19 @@ $('mode').addEventListener('change', () => {
   syncMode();
   saveSettings();
 });
-for (const id of ['gap', 'margin', 'kerf', 'orientation', 'sheet-w', 'sheet-h', 'candidates', 'board-w', 'board-lengths', 'unit', 'nest-in-holes']) {
+for (const id of ['gap-x', 'gap-y', 'kerf', 'orientation', 'sheet-w', 'sheet-h', 'candidates', 'board-w', 'board-lengths', 'unit', 'nest-in-holes']) {
   $(id).addEventListener('change', saveSettings);
 }
+for (const side of SIDES) {
+  $(`margin-${side}`).addEventListener('input', () => {
+    if (($('margin-linked') as HTMLInputElement).checked) syncMarginLink();
+  });
+  $(`margin-${side}`).addEventListener('change', saveSettings);
+}
+$('margin-linked').addEventListener('change', () => {
+  syncMarginLink();
+  saveSettings();
+});
 
 $('nest').addEventListener('click', () => void runNest());
 
@@ -419,10 +470,20 @@ function renderResults(
   box.replaceChildren();
   const verdict = document.createElement('strong');
   verdict.textContent = v.ok
-    ? `Checks passed — every part is on its sheet, minimum part-to-part gap ${v.minGap.toFixed(3)} mm, ` +
-      `closest approach to an edge ${v.minMargin.toFixed(3)} mm.`
+    ? `Checks passed — every part is on its sheet, minimum part-to-part gap ${v.minGap.toFixed(3)} mm.`
     : `${v.issues.length} validation problem${v.issues.length === 1 ? '' : 's'} — do not cut from this layout.`;
   box.append(verdict);
+
+  if (v.ok) {
+    // Per-side margins are only worth setting if you can see what they bought,
+    // so report the closest approach to each edge rather than one worst case.
+    const edges = document.createElement('span');
+    edges.className = 'nested';
+    edges.textContent = `Closest approach to each edge — ${SIDES.map(
+      (side) => `${side} ${format(v.minMargin[side])} mm`
+    ).join(', ')}.`;
+    box.append(edges);
+  }
   if (!v.ok) {
     const list = document.createElement('ul');
     for (const issue of v.issues.slice(0, 20)) {
@@ -464,8 +525,11 @@ function renderResults(
   if (board) tables.append(boardTable(board));
 
   renderDownloads(nested, settings);
-  renderPreviews(nested);
+  renderPreviews(nested, settings.margin);
 }
+
+/** A clearance reads Infinity when a sheet holds no parts at all. */
+const format = (value: number) => (Number.isFinite(value) ? value.toFixed(3) : '—');
 
 function stat(dl: HTMLElement, values: Record<string, string>): void {
   dl.replaceChildren();
@@ -572,7 +636,12 @@ function renderDownloads(nested: NestResult, settings: NestSettings): void {
   );
   const note = document.createElement('span');
   note.className = 'note';
-  note.textContent = `gap ${settings.gap} mm · margin ${settings.margin} mm · kerf ${settings.kerf} mm`;
+  const m = settings.margin;
+  const sameMargin = SIDES.every((side) => m[side] === m.top);
+  note.textContent =
+    `gap ${settings.gap.x}/${settings.gap.y} mm (h/v) · margin ` +
+    (sameMargin ? `${m.top} mm` : `${m.top}/${m.right}/${m.bottom}/${m.left} mm (t/r/b/l)`) +
+    ` · kerf ${settings.kerf} mm`;
   box.append(note);
 }
 
@@ -585,7 +654,7 @@ function button(label: string, onClick: () => void): HTMLButtonElement {
   return b;
 }
 
-function renderPreviews(nested: NestResult): void {
+function renderPreviews(nested: NestResult, margin: Margins): void {
   const box = $('previews');
   box.replaceChildren();
   const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -606,7 +675,7 @@ function renderPreviews(nested: NestResult): void {
     canvas.width = Math.ceil(sheet.width * scale) + pad * 2;
     canvas.height = Math.ceil(sheet.height * scale) + pad * 2;
     const ctx = canvas.getContext('2d');
-    if (ctx) drawSheet(ctx, sheet, { scale, labels: true, dark });
+    if (ctx) drawSheet(ctx, sheet, { scale, labels: true, dark, margin });
 
     const row = document.createElement('div');
     row.className = 'row';
@@ -618,7 +687,9 @@ function renderPreviews(nested: NestResult): void {
         download(`sheet-${sheet.index + 1}.svg`, new Blob([sheetToSvg(sheet)], { type: 'image/svg+xml' }))
       ),
       button('PNG', () => {
-        void sheetToPng(sheet, 2, dark).then((blob) => download(`sheet-${sheet.index + 1}.png`, blob));
+        void sheetToPng(sheet, 2, dark, margin).then((blob) =>
+          download(`sheet-${sheet.index + 1}.png`, blob)
+        );
       })
     );
 

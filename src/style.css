@@ -89,6 +89,18 @@ td.name { white-space: normal; min-width: 140px; }
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px 14px; margin-bottom: 12px; }
 label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: var(--muted); }
 label.wide { grid-column: 1 / -1; }
+
+fieldset.group {
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px 12px 12px; margin: 0 0 12px; background: var(--panel);
+}
+fieldset.group legend {
+  padding: 0 6px; font-size: 0.8rem; font-weight: 600; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+fieldset.group .grid { margin-bottom: 0; }
+fieldset.group .note { margin: 8px 0 0; }
+fieldset.group label.check { align-self: auto; padding: 8px 0 0; }
 label.check { flex-direction: row; align-items: center; gap: 8px; align-self: end; padding-bottom: 8px; }
 label.check input { width: auto; }
 input, select, textarea {

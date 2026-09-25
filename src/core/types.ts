@@ -88,9 +88,45 @@ export interface Sheet {
   utilisation: number;
 }
 
+/**
+ * Clearance between parts, per axis.
+ *
+ * One number per axis rather than one per side: the gap between two parts is a
+ * single distance that both of them share, so "the gap on A's right" and "the
+ * gap on B's left" are the same measurement. What can genuinely differ is the
+ * direction — you may want more room across the feed than along it.
+ */
+export interface Gaps {
+  /** Minimum clearance between parts sitting side by side, mm. */
+  x: number;
+  /** Minimum clearance between parts sitting one above the other, mm. */
+  y: number;
+}
+
+/** Unused strip along each edge of the sheet, mm. */
+export interface Margins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export type Side = keyof Margins;
+
+export const SIDES: Side[] = ['top', 'right', 'bottom', 'left'];
+
+export const uniformGaps = (value: number): Gaps => ({ x: value, y: value });
+
+export const uniformMargins = (value: number): Margins => ({
+  top: value,
+  right: value,
+  bottom: value,
+  left: value,
+});
+
 export interface NestSettings {
-  gap: number;
-  margin: number;
+  gap: Gaps;
+  margin: Margins;
   kerf: number;
   orientation: OrientationMode;
   sheetWidth: number;
@@ -106,6 +142,8 @@ export interface ValidationIssue {
   kind: 'outside-sheet' | 'margin' | 'gap' | 'overlap';
   sheet: number;
   parts: string[];
+  /** The side an edge-margin issue was measured against. */
+  side?: Side;
   measured: number;
   required: number;
   message: string;
@@ -115,8 +153,8 @@ export interface ValidationReport {
   ok: boolean;
   /** Smallest measured part-to-part distance across all sheets, mm. */
   minGap: number;
-  /** Smallest measured part-to-edge distance across all sheets, mm. */
-  minMargin: number;
+  /** Smallest measured clearance to each sheet edge across all sheets, mm. */
+  minMargin: Margins;
   issues: ValidationIssue[];
 }
 

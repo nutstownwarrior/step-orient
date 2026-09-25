@@ -9,6 +9,7 @@ import { parseDxfOutlines } from '../src/core/parse/dxf';
 import { sheetToDxf } from '../src/core/export/dxf';
 import { sheetToSvg } from '../src/core/export/svg';
 import { cutListCsv } from '../src/core/export/csv';
+import { SIDES, uniformGaps, uniformMargins } from '../src/core/types';
 import type { NestSettings, Outline, Part, Ring, Sheet } from '../src/core/types';
 
 const rect = (w: number, h: number, x = 0, y = 0): Ring => [
@@ -42,8 +43,8 @@ function part(name: string, w: number, h: number, thickness = 10, quantity = 1):
 }
 
 const settings: NestSettings = {
-  gap: 5,
-  margin: 10,
+  gap: uniformGaps(5),
+  margin: uniformMargins(10),
   kerf: 0,
   orientation: 'grain-locked',
   sheetWidth: 1000,
@@ -139,12 +140,14 @@ describe('nesting', () => {
     const result = nest(parts, settings);
     expect(result.validation.ok).toBe(true);
     expect(result.validation.minGap).toBeGreaterThanOrEqual(5 - 1e-6);
-    expect(result.validation.minMargin).toBeGreaterThanOrEqual(10 - 1e-6);
+    for (const side of SIDES) {
+      expect(result.validation.minMargin[side], side).toBeGreaterThanOrEqual(10 - 1e-6);
+    }
   });
 
   it('adds the kerf to the gap', () => {
     const parts = Array.from({ length: 6 }, (_, i) => part(`p${i}`, 200, 150));
-    const result = nest(parts, { ...settings, gap: 4, kerf: 3 });
+    const result = nest(parts, { ...settings, gap: uniformGaps(4), kerf: 3 });
     expect(result.validation.minGap).toBeGreaterThanOrEqual(7 - 1e-6);
     expect(result.validation.ok).toBe(true);
   });
@@ -237,39 +240,41 @@ describe('validation', () => {
   });
 
   it('passes a layout that respects the gap and margin', () => {
-    const report = validate([sheetWith([placement('a', 10, 10, 100, 100), placement('b', 115, 10, 100, 100)])], 5, 10);
+    const report = validate([sheetWith([placement('a', 10, 10, 100, 100), placement('b', 115, 10, 100, 100)])], uniformGaps(5), uniformMargins(10));
     expect(report.ok).toBe(true);
     expect(report.minGap).toBeCloseTo(5, 9);
-    expect(report.minMargin).toBeCloseTo(10, 9);
+    expect(report.minMargin.left).toBeCloseTo(10, 9);
+    expect(report.minMargin.bottom).toBeCloseTo(10, 9);
   });
 
   it('catches a gap that is 2 mm short', () => {
-    const report = validate([sheetWith([placement('a', 10, 10, 100, 100), placement('b', 113, 10, 100, 100)])], 5, 10);
+    const report = validate([sheetWith([placement('a', 10, 10, 100, 100), placement('b', 113, 10, 100, 100)])], uniformGaps(5), uniformMargins(10));
     expect(report.ok).toBe(false);
     expect(report.minGap).toBeCloseTo(3, 9);
     expect(report.issues[0].kind).toBe('gap');
-    expect(report.issues[0].message).toMatch(/3\.000 mm apart/);
+    expect(report.issues[0].message).toMatch(/3\.000 mm apart horizontally/);
   });
 
   it('catches an overlap', () => {
-    const report = validate([sheetWith([placement('a', 10, 10, 100, 100), placement('b', 60, 10, 100, 100)])], 5, 10);
+    const report = validate([sheetWith([placement('a', 10, 10, 100, 100), placement('b', 60, 10, 100, 100)])], uniformGaps(5), uniformMargins(10));
     expect(report.issues.some((i) => i.kind === 'overlap')).toBe(true);
   });
 
   it('catches a part hanging off the sheet, and one inside the margin', () => {
-    const off = validate([sheetWith([placement('a', 950, 10, 100, 100)])], 5, 10);
+    const off = validate([sheetWith([placement('a', 950, 10, 100, 100)])], uniformGaps(5), uniformMargins(10));
     expect(off.issues[0].kind).toBe('outside-sheet');
 
-    const tight = validate([sheetWith([placement('a', 4, 10, 100, 100)])], 5, 10);
+    const tight = validate([sheetWith([placement('a', 4, 10, 100, 100)])], uniformGaps(5), uniformMargins(10));
     expect(tight.issues[0].kind).toBe('margin');
-    expect(tight.minMargin).toBeCloseTo(4, 9);
+    expect(tight.issues[0].side).toBe('left');
+    expect(tight.minMargin.left).toBeCloseTo(4, 9);
   });
 
   it('measures the diagonal distance between parts, not just the axis gap', () => {
     const report = validate(
       [sheetWith([placement('a', 10, 10, 100, 100), placement('b', 113, 113, 100, 100)])],
-      5,
-      10
+      uniformGaps(5),
+      uniformMargins(10)
     );
     expect(report.minGap).toBeCloseTo(Math.hypot(3, 3), 6);
   });
