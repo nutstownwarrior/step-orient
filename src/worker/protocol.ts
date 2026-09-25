@@ -1,4 +1,5 @@
 import type { BoardResult, StockOption } from '../core/sheets';
+import type { InputFile } from '../core/parse/archive';
 import type { NestResult, NestSettings, Part, Unit } from '../core/types';
 
 export type SheetMode =
@@ -10,7 +11,8 @@ export type WorkerRequest =
   | {
       id: number;
       type: 'parse';
-      files: { name: string; buffer: ArrayBuffer }[];
+      /** Uploaded files. A .zip is unpacked worker-side into the files inside it. */
+      files: InputFile[];
       unitOverride: Unit | null;
     }
   | {

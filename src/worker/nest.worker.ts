@@ -4,6 +4,7 @@ import { outlineArea, outlineFromMesh } from '../core/outline';
 import { canonicalise } from '../core/orient';
 import { nest } from '../core/nest';
 import { loadOcct, readStep, type OcctModule } from '../core/parse/occt';
+import { expandArchives, extensionOf, basename } from '../core/parse/archive';
 import { parseDxfOutlines } from '../core/parse/dxf';
 import { parseStl } from '../core/parse/stl';
 import { minimumBoardLength, rankStock } from '../core/sheets';
@@ -34,25 +35,29 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   }
 };
 
-const extension = (name: string) => name.slice(name.lastIndexOf('.') + 1).toLowerCase();
-
 async function handleParse(request: Extract<WorkerRequest, { type: 'parse' }>): Promise<void> {
   const parts: Part[] = [];
   const warnings: string[] = [];
   let unit: Unit = 'mm';
   let unitSource = 'assumed';
 
-  for (let i = 0; i < request.files.length; i++) {
-    const file = request.files[i];
+  // SPEC 2 — a zip is not a part, it is a bag of parts. Unpack first, then the
+  // per-file dispatch below never has to know an archive was involved.
+  const files = expandArchives(request.files, warnings, (name) =>
+    post({ id: request.id, type: 'progress', message: `Unpacking ${basename(name)}`, value: 0 })
+  );
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
     post({
       id: request.id,
       type: 'progress',
-      message: `Reading ${file.name}`,
-      value: i / request.files.length,
+      message: `Reading ${basename(file.name)}`,
+      value: i / files.length,
     });
 
     try {
-      const ext = extension(file.name);
+      const ext = extensionOf(file.name);
       if (ext === 'step' || ext === 'stp') {
         const text = new TextDecoder().decode(new Uint8Array(file.buffer, 0, Math.min(file.buffer.byteLength, 65536)));
         const detected = detectStepUnit(text);
@@ -91,7 +96,8 @@ async function handleParse(request: Extract<WorkerRequest, { type: 'parse' }>): 
   post({ id: request.id, type: 'parts', parts: mergeDuplicates(parts), warnings, unit, unitSource });
 }
 
-const stem = (name: string) => name.replace(/\.[^.]+$/, '');
+/** Name a part after its own file, not the path it arrived down. */
+const stem = (name: string) => basename(name).replace(/\.[^.]+$/, '');
 
 function addMeshes(parts: Part[], meshes: Mesh[], source: string, scale: number, warnings: string[]): void {
   meshes.forEach((mesh) => {
