@@ -14,7 +14,8 @@ your geometry never leaves the machine.
 1. **Reads your parts.** STEP is the primary path, via `occt-import-js` (a WASM
    build of the OpenCascade importer). One file may hold several solids; each
    becomes a part, and identical parts collapse into one row with a quantity.
-   DXF and STL also work.
+   DXF and STL also work. Drop in a **.zip** and it is unpacked in the browser
+   — subfolders and all — so a whole assembly export goes in as one file.
 2. **Extracts the cutting outline.** For each solid it finds the plate normal,
    projects *every* triangle onto that plane and unions them. See below — this
    is the part that is easy to get wrong.
@@ -107,6 +108,30 @@ The acceptance fixture is built to catch a slicing implementation. One part has
 a rebate that spans mid-thickness, so a slice reports 250 × 205 where the true
 blank is 250 × 210; another has a chamfered face. Both must come out as clean
 four-vertex rectangles at full size.
+
+## Archives
+
+A `.zip` is unpacked in the worker before anything else happens, so the rest of
+the pipeline never knows an archive was involved. Subfolders are followed, and
+a zip inside a zip is followed too, up to three levels.
+
+Files that are not STEP, DXF or STL are skipped in silence — a CAD export
+routinely ships a readme, a thumbnail and a PDF alongside the parts, and
+warning about each one would bury the warnings that matter. So are directory
+records, dotfiles and the `__MACOSX` folder macOS leaves behind. What *does*
+get a warning: an archive with no usable files in it, one that will not open,
+one nested deeper than three levels, and entries compressed with something
+other than deflate.
+
+A zip is attacker-shaped input — a megabyte of archive can hold gigabytes of
+output — so entry count (500) and uncompressed size (256 MB) are budgeted
+across the whole upload and checked from the central directory *before*
+anything is decompressed. One corrupt archive does not stop the others being
+read.
+
+Parts keep their path in the archive as their source, so a part that came out
+of `box.zip/parts/side.step` says so in the parts table, but is still named
+`side`.
 
 ## Sheet modes
 
