@@ -49,12 +49,21 @@ export interface Part {
   boxH: number;
   quantity: number;
   /**
-   * Per-part grain override: when true this instance may be turned a quarter
-   * turn even in grain-locked mode (a visible face where the grain has to run
-   * across the short dimension).
+   * Fixed placement rotation for every instance of this part, or 'auto' to let
+   * the nester choose within the job's orientation mode.
+   *
+   * Set it when the part has to sit a particular way round: 90 or 270 runs the
+   * grain across the short dimension, which a visible face sometimes needs,
+   * and 0 against 180 decides which end of an asymmetric part lands where —
+   * the same footprint, mirrored.
    */
-  grainOverride: boolean;
+  rotation: PartRotation;
 }
+
+/** Placement rotations a part can be pinned to, in quarter turns. */
+export type PartRotation = 'auto' | 0 | 90 | 180 | 270;
+
+export const PART_ROTATIONS: PartRotation[] = ['auto', 0, 90, 180, 270];
 
 /** A part placed on a sheet. */
 export interface Placement {

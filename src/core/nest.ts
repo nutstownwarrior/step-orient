@@ -3,7 +3,17 @@ import { holeBins, pointInRing } from './holes';
 import { bounds, mapOutline, rotateOutline, translateRing } from './orient';
 import { outlineArea } from './outline';
 import { validate } from './validate';
-import type { Gaps, Margins, NestResult, NestSettings, Part, Placement, Sheet } from './types';
+import type {
+  Gaps,
+  Margins,
+  NestResult,
+  NestSettings,
+  OrientationMode,
+  Part,
+  PartRotation,
+  Placement,
+  Sheet,
+} from './types';
 
 export class PartTooLargeError extends Error {
   constructor(
@@ -13,10 +23,17 @@ export class PartTooLargeError extends Error {
     readonly sheetW: number,
     readonly sheetH: number,
     readonly usableW = sheetW,
-    readonly usableH = sheetH
+    readonly usableH = sheetH,
+    readonly rotation: PartRotation = 'auto'
   ) {
+    // A part pinned to a quarter turn occupies its other way round, so say so:
+    // "350 x 210 does not fit in 380 x 230" reads like a bug otherwise.
+    const pinned =
+      rotation !== 'auto' && rotation % 180 !== 0
+        ? `, pinned to ${rotation}°, needs ${partH.toFixed(1)} x ${partW.toFixed(1)} mm and`
+        : ' and';
     super(
-      `${partName} is ${partW.toFixed(1)} x ${partH.toFixed(1)} mm and does not fit on a ` +
+      `${partName} is ${partW.toFixed(1)} x ${partH.toFixed(1)} mm${pinned} does not fit on a ` +
         `${sheetW} x ${sheetH} mm sheet, which leaves ${usableW.toFixed(1)} x ` +
         `${usableH.toFixed(1)} mm once the edge margins are taken off`
     );
@@ -43,26 +60,39 @@ function expand(parts: Part[]): Instance[] {
 }
 
 /**
- * SPEC 4 — the footprints a part is allowed to occupy.
+ * SPEC 4 — the footprints a part is allowed to occupy, before the gap is added.
  *
- * Grain locked means the long edge of the minimum-area rectangle runs along
- * the sheet X axis; 0 deg and 180 deg give the same footprint, so one box
- * covers both. The per-part override turns that instance a quarter turn, for
- * a visible face where the grain has to run across the short dimension.
+ * Grain locked means the long edge of the minimum-area rectangle runs along the
+ * sheet X axis. A part pinned to a rotation takes that one and nothing else,
+ * whatever the job's mode says: it is an explicit instruction about this part,
+ * where the mode is a default for the rest.
+ *
+ * 0 and 180 share a footprint, as do 90 and 270 — the difference is which way
+ * round the part sits, which matters for an asymmetric part or a figured face
+ * but not to the packer.
  */
+export function footprints(part: Part, orientation: OrientationMode): Box[] {
+  if (orientation === 'free') {
+    throw new Error('free rotation is not implemented in v1 — use grain locked or 90 deg steps');
+  }
+  const upright = { w: part.boxW, h: part.boxH, rotation: 0 };
+  const turned = { w: part.boxH, h: part.boxW, rotation: 90 };
+
+  if (part.rotation !== 'auto') {
+    const quarter = part.rotation % 180 !== 0;
+    return [{ ...(quarter ? turned : upright), rotation: part.rotation }];
+  }
+  return orientation === 'grain-locked' ? [upright] : [upright, turned];
+}
+
 function boxesFor(part: Part, settings: NestSettings, gap: Gaps): Box[] {
   // Inflate after rotating, not before: the X gap always belongs to the box's
   // width and the Y gap to its height, whichever way the part is turned.
-  const upright = { w: part.boxW + gap.x, h: part.boxH + gap.y, rotation: 0 };
-  const turned = { w: part.boxH + gap.x, h: part.boxW + gap.y, rotation: 90 };
-  switch (settings.orientation) {
-    case 'grain-locked':
-      return part.grainOverride ? [turned] : [upright];
-    case 'quarter-turns':
-      return [upright, turned];
-    case 'free':
-      throw new Error('free rotation is not implemented in v1 — use grain locked or 90 deg steps');
-  }
+  return footprints(part, settings.orientation).map((f) => ({
+    w: f.w + gap.x,
+    h: f.h + gap.y,
+    rotation: f.rotation,
+  }));
 }
 
 interface GroupLayout {
@@ -105,7 +135,16 @@ function packGroup(
     const fits = item.boxes.some((b) => b.w <= regionW + 1e-9 && b.h <= regionH + 1e-9);
     if (!fits) {
       const part = instances.find((i) => i.id === item.id)!.part;
-      throw new PartTooLargeError(part.name, part.boxW, part.boxH, sheetW, sheetH, usableW, usableH);
+      throw new PartTooLargeError(
+        part.name,
+        part.boxW,
+        part.boxH,
+        sheetW,
+        sheetH,
+        usableW,
+        usableH,
+        part.rotation
+      );
     }
   }
 
