@@ -29,7 +29,7 @@ function part(name: string, outline: Outline, thickness = 10, quantity = 1): Par
     boxW: canon.w,
     boxH: canon.h,
     quantity,
-    grainOverride: false,
+    rotation: 'auto',
   };
 }
 
@@ -97,7 +97,7 @@ describe('a gap per axis', () => {
   });
 
   it('applies the X gap to a part width and the Y gap to its height after a quarter turn', () => {
-    const turned = { ...plain('turned', 300, 100, 2), grainOverride: true };
+    const turned = { ...plain('turned', 300, 100, 2), rotation: 90 as const };
     const result = nest([turned], { ...base, gap: { x: 30, y: 3 } });
     const [a, b] = result.sheets[0].placements;
     expect(a.rotation).toBe(90);

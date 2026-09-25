@@ -33,7 +33,7 @@ export async function loadFixtureParts(dir = 'fixtures/box'): Promise<Part[]> {
         boxW: canon.w,
         boxH: canon.h,
         quantity: 1,
-        grainOverride: false,
+        rotation: 'auto',
       });
     });
   }

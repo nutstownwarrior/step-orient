@@ -42,7 +42,7 @@ function part(name: string, outline: Outline, thickness = 10): Part {
     boxW: canon.w,
     boxH: canon.h,
     quantity: 1,
-    grainOverride: false,
+    rotation: 'auto',
   };
 }
 

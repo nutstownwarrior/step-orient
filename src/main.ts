@@ -5,7 +5,7 @@ import { cutListCsv } from './core/export/csv';
 import { sheetToDxf } from './core/export/dxf';
 import { sheetToSvg } from './core/export/svg';
 import { DEFAULT_STOCK_SIZES, type BoardResult, type StockOption } from './core/sheets';
-import { SIDES, uniformGaps, uniformMargins } from './core/types';
+import { PART_ROTATIONS, SIDES, uniformGaps, uniformMargins } from './core/types';
 import type { Gaps, Margins, NestResult, NestSettings, OrientationMode, Part, Unit } from './core/types';
 import type { SheetMode, WorkerRequest, WorkerResponse } from './worker/protocol';
 
@@ -319,14 +319,19 @@ function renderParts(): void {
     });
     qty.append(qtyInput);
 
-    const grain = document.createElement('td');
-    const grainInput = document.createElement('input');
-    grainInput.type = 'checkbox';
-    grainInput.checked = part.grainOverride;
-    grainInput.addEventListener('change', () => {
-      part.grainOverride = grainInput.checked;
+    const rotation = document.createElement('td');
+    const rotationInput = document.createElement('select');
+    for (const value of PART_ROTATIONS) {
+      const option = document.createElement('option');
+      option.value = String(value);
+      option.textContent = value === 'auto' ? 'Auto' : `${value}°`;
+      rotationInput.append(option);
+    }
+    rotationInput.value = String(part.rotation);
+    rotationInput.addEventListener('change', () => {
+      part.rotation = rotationInput.value === 'auto' ? 'auto' : (Number(rotationInput.value) as 0 | 90 | 180 | 270);
     });
-    grain.append(grainInput);
+    rotation.append(rotationInput);
 
     const remove = document.createElement('td');
     const removeButton = document.createElement('button');
@@ -339,7 +344,7 @@ function renderParts(): void {
     });
     remove.append(removeButton);
 
-    tr.append(name, size, thickness, qty, grain, remove);
+    tr.append(name, size, thickness, qty, rotation, remove);
     body.append(tr);
   }
   updatePartsSummary();

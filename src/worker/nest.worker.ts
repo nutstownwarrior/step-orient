@@ -127,7 +127,7 @@ function addOutline(parts: Part[], outline: Outline, name: string, source: strin
     boxW: canon.w,
     boxH: canon.h,
     quantity: 1,
-    grainOverride: false,
+    rotation: 'auto',
   });
 }
 

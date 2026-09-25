@@ -20,9 +20,8 @@ your geometry never leaves the machine.
    projects *every* triangle onto that plane and unions them. See below — this
    is the part that is easy to get wrong.
 3. **Orients for grain.** Each part is turned so the long edge of its
-   *minimum-area* rotated bounding rectangle runs along the sheet X axis. There
-   is a per-part override for a visible face where the grain has to run the
-   other way.
+   *minimum-area* rotated bounding rectangle runs along the sheet X axis. Any
+   part can be pinned to a rotation of its own instead — see below.
 4. **Nests.** MaxRects best-short-side-fit, run under five sort orders, keeping
    whichever needs the fewest sheets. Parts are grouped by thickness and nested
    separately, because parts of different thickness cannot share a board.
@@ -132,6 +131,33 @@ read.
 Parts keep their path in the archive as their source, so a part that came out
 of `box.zip/parts/side.step` says so in the parts table, but is still named
 `side`.
+
+## Rotation
+
+The job's **Orientation** setting is the default for every part:
+
+- **Grain locked** — every part upright, long edge along the sheet X axis, so
+  the grain runs the length of each part.
+- **90° steps** — the nester may also turn a part a quarter turn, for isotropic
+  material like metal or MDF.
+- **Free rotation** — out of scope for v1. Selecting it raises a clear "not
+  implemented" error rather than quietly doing something else.
+
+The **Rotation** column in the parts table overrides that for one part:
+**Auto**, or a fixed **0° / 90° / 180° / 270°**. A pinned rotation wins over
+the job's mode in both directions — it will turn a part in a grain-locked job,
+and it will hold a part upright in a 90° job even where turning would pack
+better. It applies to every instance of that part.
+
+- **90° / 270°** run the grain across the short dimension, which a visible face
+  sometimes needs.
+- **0° / 180°** are the same footprint the other way round. The packer cannot
+  tell them apart, but the part can: it decides which end of an asymmetric part
+  — a cutout nearer one end, a figured face — lands where.
+
+One rotation per part row, applied to all its instances. To place two instances
+of the same part differently, remove the extra quantity from one row and add
+the file again as a second row.
 
 ## Gaps and margins
 

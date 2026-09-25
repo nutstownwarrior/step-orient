@@ -38,7 +38,7 @@ function part(name: string, w: number, h: number, thickness = 10, quantity = 1):
     boxW: canon.w,
     boxH: canon.h,
     quantity,
-    grainOverride: false,
+    rotation: 'auto',
   };
 }
 
@@ -194,7 +194,7 @@ describe('nesting', () => {
   });
 
   it('turns a part a quarter turn when the grain override is set', () => {
-    const across = { ...part('across', 300, 100), grainOverride: true };
+    const across = { ...part('across', 300, 100), rotation: 90 as const };
     const along = part('along', 300, 100);
     const result = nest([across, along], settings);
     const placed = Object.fromEntries(result.sheets[0].placements.map((p) => [p.name, p]));

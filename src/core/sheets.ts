@@ -1,4 +1,4 @@
-import { nest, PartTooLargeError } from './nest';
+import { footprints, nest, PartTooLargeError } from './nest';
 import type { NestSettings, Part } from './types';
 
 /** SPEC 7 — sensible defaults for the "what should I buy" table. */
@@ -139,7 +139,9 @@ export function minimumBoardLength(
   // A part whose short side exceeds the usable width can never fit, whatever
   // the length is.
   for (const p of instances) {
-    const across = settings.orientation === 'grain-locked' && !p.grainOverride ? p.boxH : Math.min(p.boxW, p.boxH);
+    // The narrowest way this part is allowed to sit, which is what has to fit
+    // across the board.
+    const across = Math.min(...footprints(p, settings.orientation).map((f) => f.h));
     if (across > usableWidth + 1e-9) {
       return {
         boardWidth,
